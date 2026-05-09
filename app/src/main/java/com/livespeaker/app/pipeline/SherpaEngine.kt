@@ -75,10 +75,12 @@ class SherpaEngine(private val context: android.content.Context) {
         }
     }
 
-    /** 提取说话人嵌入: FloatArray → FloatArray(256) */
+    /** 提取说话人嵌入: FloatArray → FloatArray(256)
+     * 注: SpeakerEmbeddingExtractor API 可能接受时长参数而非原始样本。
+     * 暂时返回 null，后续适配。 */
     fun extractEmbedding(samples: FloatArray): FloatArray? {
-        val e = embedder ?: return null
-        return e.compute(samples, SAMPLE_RATE)
+        // TODO: 适配 compute(seconds: Long, sampleRate: Int) 等签名
+        return null
     }
 
     /** 释放所有模型 */
