@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.livespeaker.app.service.TranscriptionEventBus
 import com.livespeaker.app.service.TranscriptionLine
+import kotlinx.coroutines.launch
 
 /**
  * 主界面 - 实时转写显示。
@@ -26,6 +27,7 @@ import com.livespeaker.app.service.TranscriptionLine
  * - 不同说话人用不同颜色标识
  * - 开始/停止录音按钮
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     onStart: () -> Unit,
@@ -34,14 +36,16 @@ fun MainScreen(
     var isRecording by remember { mutableStateOf(false) }
     val lines = remember { mutableStateListOf<TranscriptionLine>() }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     // 注册事件监听
     DisposableEffect(Unit) {
         val listener: (TranscriptionLine) -> Unit = { line ->
             lines.add(line)
-            // 自动滚到底部
-            if (lines.size > 1) {
-                listState.animateScrollToItem(lines.size - 1)
+            scope.launch {
+                if (lines.size > 1) {
+                    listState.animateScrollToItem(lines.size - 1)
+                }
             }
         }
         TranscriptionEventBus.listen(listener)

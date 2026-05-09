@@ -21,23 +21,19 @@ import kotlinx.coroutines.*
 /**
  * 前台转写服务。
  *
- * 生命周期: startService → 录音 → 降噪 → VAD → ASR → 说话人识别 → 通知栏更新
- *
- * 使用 startForeground 保持后台运行，不会被系统杀死。
+ * 生命周期: startService → 录音 → VAD → ASR → 说话人识别 → 通知栏更新
  */
 class TranscriptionService : Service() {
 
     companion object {
         private const val TAG = "TranscriptionService"
-        private const val MIN_SEGMENT_SAMPLES = 8000 // 500ms @ 16kHz
+        private const val MIN_SEGMENT_SAMPLES = 8000
 
-        /** 启动服务 */
         fun start(context: Context) {
             val intent = Intent(context, TranscriptionService::class.java)
             context.startForegroundService(intent)
         }
 
-        /** 停止服务 */
         fun stop(context: Context) {
             val intent = Intent(context, TranscriptionService::class.java)
             context.stopService(intent)
@@ -52,11 +48,9 @@ class TranscriptionService : Service() {
     private lateinit var speakerRepo: SpeakerRepository
 
     private var state = RecordingState.IDLE
-
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var processingJob: Job? = null
 
-    // 通知栏控制接收器
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
@@ -71,7 +65,6 @@ class TranscriptionService : Service() {
         super.onCreate()
         Log.i(TAG, "服务创建")
 
-        // 注册通知栏控制接收器
         val filter = IntentFilter().apply {
             addAction(TranscriptionNotification.ACTION_PAUSE)
             addAction(TranscriptionNotification.ACTION_STOP)
@@ -79,18 +72,21 @@ class TranscriptionService : Service() {
         }
         registerReceiver(notificationReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
 
-        // 初始化组件
         val app = LiveSpeakerApp.instance
         ringBuffer = RingBuffer()
         audioRecorder = AudioRecorder(ringBuffer)
-        sherpaEngine = SherpaEngine(app)
+        sherpaEngine = SherpaEngine(this)
         speakerRepo = SpeakerRepository.fromApp()
         clusterEngine = ClusterEngine(speakerRepo)
 
         // 初始化模型
-        sherpaEngine.init()
+        val modelsDir = app.modelManager.modelsDir
+        val asrModel = java.io.File(modelsDir, "sense-voice/model.int8.onnx")
+        val tokensFile = java.io.File(modelsDir, "sense-voice/tokens.txt")
+        if (asrModel.exists() && tokensFile.exists()) {
+            sherpaEngine.initAsr(asrModel.absolutePath, tokensFile.absolutePath)
+        }
 
-        // 配置 VAD
         vadProcessor = VadProcessor().apply {
             onSpeechEnd = { segment -> handleSpeechSegment(segment) }
         }
@@ -106,36 +102,28 @@ class TranscriptionService : Service() {
 
     private fun startRecording() {
         if (!sherpaEngine.isReady) {
-            Log.w(TAG, "模型未就绪，无法开始")
+            Log.w(TAG, "模型未就绪")
             stopSelf()
             return
         }
 
         state = RecordingState.RECORDING
-
-        // 启动前台服务
         startForeground(
             TranscriptionNotification.NOTIFICATION_ID_VALUE,
             TranscriptionNotification.build(this, RecordingState.RECORDING)
         )
 
-        // 启动录音
         audioRecorder.start()
 
-        // 启动处理流水线
         processingJob = serviceScope.launch {
-            // 加载说话人档案
             clusterEngine.loadProfiles()
-
-            // 持续从 RingBuffer 读取并处理
-            val frame = ShortArray(4096) // 256ms @ 16kHz
+            val frame = ShortArray(4096)
             while (isActive && state == RecordingState.RECORDING) {
                 val n = ringBuffer.read(frame)
                 if (n > 0) {
-                    val segment = if (n == frame.size) frame else frame.copyOf(n)
-                    vadProcessor.processFrame(segment)
+                    vadProcessor.processFrame(if (n == frame.size) frame else frame.copyOf(n))
                 } else {
-                    delay(50) // 没有数据时短暂等待
+                    delay(50)
                 }
             }
         }
@@ -143,36 +131,30 @@ class TranscriptionService : Service() {
         Log.i(TAG, "录音和转写已启动")
     }
 
-    /**
-     * 处理完整语音段: 降噪 → ASR → 说话人嵌入 → 聚类 → UI 更新
-     */
     private fun handleSpeechSegment(audio: ShortArray) {
         if (audio.size < MIN_SEGMENT_SAMPLES) return
 
         serviceScope.launch(Dispatchers.IO) {
             try {
-                // 转为 FloatArray
                 val samples = FloatArray(audio.size) { audio[it] / 32768f }
 
-                // Stage 1: GTCRN 降噪
-                val clean = sherpaEngine.denoise(samples)
-
-                // Stage 2: ASR
-                val result = sherpaEngine.recognize(clean)
-                val text = result.text
+                // Stage 1: ASR
+                val text = sherpaEngine.recognize(samples)
                 if (text.isBlank()) return@launch
 
-                // Stage 3: 说话人嵌入
-                val embedding = sherpaEngine.extractEmbedding(clean)
+                // Stage 2: 说话人嵌入 (如果有模型)
+                val embedding = sherpaEngine.extractEmbedding(samples)
 
-                // Stage 4: 聚类
-                val clusterResult = clusterEngine.identifyOrCreate(embedding)
+                // Stage 3: 聚类 (如果有嵌入)
+                val clusterResult = if (embedding != null) {
+                    clusterEngine.identifyOrCreate(embedding)
+                } else {
+                    ClusterResult("unknown", "unknown", false, 0f)
+                }
 
-                // Stage 5: 更新通知栏
                 val line = "[${clusterResult.label}] $text"
                 updateNotification(line)
 
-                // Stage 6: 发送结果到 UI (通过 LiveData/Flow)
                 TranscriptionEventBus.emit(
                     TranscriptionLine(
                         speakerId = clusterResult.speakerId,
@@ -182,8 +164,6 @@ class TranscriptionService : Service() {
                         timestamp = System.currentTimeMillis()
                     )
                 )
-
-                Log.d(TAG, "$line (newSpeaker=${clusterResult.isNew})")
             } catch (e: Exception) {
                 Log.e(TAG, "处理语音段失败", e)
             }
@@ -191,9 +171,7 @@ class TranscriptionService : Service() {
     }
 
     private fun updateNotification(text: String) {
-        val notification = TranscriptionNotification.build(
-            this, state, text
-        )
+        val notification = TranscriptionNotification.build(this, state, text)
         val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(TranscriptionNotification.NOTIFICATION_ID_VALUE, notification)
     }
@@ -204,11 +182,9 @@ class TranscriptionService : Service() {
         audioRecorder.stop()
         processingJob?.cancel()
         vadProcessor.forceEndSegment()
-
         val notification = TranscriptionNotification.build(this, RecordingState.PAUSED)
         val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(TranscriptionNotification.NOTIFICATION_ID_VALUE, notification)
-
         Log.i(TAG, "已暂停")
     }
 
@@ -220,17 +196,13 @@ class TranscriptionService : Service() {
 
     override fun onDestroy() {
         state = RecordingState.STOPPED
-
         processingJob?.cancel()
         audioRecorder.release()
         vadProcessor.forceEndSegment()
         sherpaEngine.release()
         clusterEngine.release()
-
         try { unregisterReceiver(notificationReceiver) } catch (_: Exception) {}
-
         TranscriptionEventBus.clear()
-
         Log.i(TAG, "服务已销毁")
         super.onDestroy()
     }
@@ -238,28 +210,13 @@ class TranscriptionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 }
 
-// ──────────────────────────────────────────────────
-// 事件总线 (简单版 LiveData)
-// ──────────────────────────────────────────────────
-
+// Event bus
 object TranscriptionEventBus {
     private val listeners = mutableListOf<(TranscriptionLine) -> Unit>()
-
-    fun emit(line: TranscriptionLine) {
-        listeners.forEach { it(line) }
-    }
-
-    fun listen(listener: (TranscriptionLine) -> Unit) {
-        listeners.add(listener)
-    }
-
-    fun remove(listener: (TranscriptionLine) -> Unit) {
-        listeners.remove(listener)
-    }
-
-    fun clear() {
-        listeners.clear()
-    }
+    fun emit(line: TranscriptionLine) { listeners.forEach { it(line) } }
+    fun listen(listener: (TranscriptionLine) -> Unit) { listeners.add(listener) }
+    fun remove(listener: (TranscriptionLine) -> Unit) { listeners.remove(listener) }
+    fun clear() { listeners.clear() }
 }
 
 data class TranscriptionLine(

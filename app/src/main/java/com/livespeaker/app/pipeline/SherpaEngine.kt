@@ -1,127 +1,83 @@
 package com.livespeaker.app.pipeline
 
-import android.content.Context
+import android.content.res.AssetManager
 import android.util.Log
 import com.k2fsa.sherpa.onnx.*
-import com.livespeaker.app.LiveSpeakerApp
-import java.io.File
 
 /**
  * sherpa-onnx 引擎总封装。
  *
  * 统一管理:
- * - GTCRN 降噪 (SpeechEnhancer)
- * - SenseVoice ASR (OfflineRecognizer)
- * - 3D-Speaker 嵌入 (SpeakerEmbeddingExtractor)
- * - Silero VAD (内置)
+ * - SenseVoice ASR (OfflineRecognizer — 模拟流式)
+ * - 3D-Speaker 嵌入 (SpeakerEmbeddingExtractor — 如有)
+ * - GTCRN 降噪 (SpeechEnhancer — 如有)
+ *
+ * 注意: sherpa-onnx Kotlin API 构造函数通常需要 AssetManager 作为第一个参数。
+ *       具体类名和签名以 sherpa-onnx 实际版本为准，CI 中逐步修正。
  */
-class SherpaEngine(private val app: LiveSpeakerApp) {
+class SherpaEngine(private val context: android.content.Context) {
+
+    private val assetManager: AssetManager
+        get() = context.assets
 
     companion object {
         private const val TAG = "SherpaEngine"
         private const val SAMPLE_RATE = 16000
     }
 
-    private var enhancer: SpeechEnhancer? = null
     private var asr: OfflineRecognizer? = null
     private var embedder: SpeakerEmbeddingExtractor? = null
 
     val isReady: Boolean
-        get() = asr != null && embedder != null
+        get() = asr != null
 
-    /** 初始化所有模型 (必须已下载) */
-    fun init() {
-        val modelsDir = app.modelManager.modelsDir
-
-        // 1. GTCRN 降噪器
-        val gtcrnModel = File(modelsDir, "denoiser/gtcrn_simple.onnx")
-        if (gtcrnModel.exists()) {
-            enhancer = SpeechEnhancer(
-                SpeechEnhancerConfig(
-                    model = SpeechEnhancerModelConfig(
-                        gtcrn = GtcrnModelConfig(
-                            model = gtcrnModel.absolutePath
-                        )
-                    )
-                )
+    /** 初始化 SenseVoice ASR 模型 (仅同步初始化) */
+    fun initAsr(modelPath: String, tokensPath: String) {
+        val config = OfflineRecognizerConfig(
+            modelConfig = OfflineModelConfig(
+                senseVoice = OfflineSenseVoiceModelConfig(
+                    model = modelPath,
+                    language = "auto"
+                ),
+                tokens = tokensPath,
+                numThreads = 2,
+                provider = "cpu"
             )
-            Log.i(TAG, "GTCRN 降噪器已加载")
-        } else {
-            Log.w(TAG, "GTCRN 模型不存在，跳过降噪")
-        }
-
-        // 2. SenseVoice ASR
-        val asrModel = File(modelsDir, "sense-voice/model.int8.onnx")
-        val tokens = File(modelsDir, "sense-voice/tokens.txt")
-        if (asrModel.exists() && tokens.exists()) {
-            asr = OfflineRecognizer(
-                OfflineRecognizerConfig(
-                    featConfig = FeatureExtractorConfig(
-                        samplingRate = SAMPLE_RATE,
-                        featureDim = 80
-                    ),
-                    modelConfig = OfflineModelConfig(
-                        senseVoice = OfflineSenseVoiceModelConfig(
-                            model = asrModel.absolutePath,
-                            useInverseTextNormalization = 1,
-                            language = "auto"
-                        ),
-                        tokens = tokens.absolutePath,
-                        numThreads = 2,
-                        provider = "cpu"
-                    )
-                )
-            )
-            Log.i(TAG, "SenseVoice ASR 已加载")
-        } else {
-            Log.w(TAG, "SenseVoice 模型不存在")
-        }
-
-        // 3. 3D-Speaker 嵌入
-        val speakerModel = File(modelsDir, "speaker/eres2net.onnx")
-        if (speakerModel.exists()) {
-            embedder = SpeakerEmbeddingExtractor(
-                SpeakerEmbeddingExtractorConfig(
-                    model = speakerModel.absolutePath,
-                    numThreads = 1,
-                    provider = "cpu"
-                )
-            )
-            Log.i(TAG, "3D-Speaker 嵌入模型已加载")
-        } else {
-            Log.w(TAG, "说话人嵌入模型不存在")
-        }
+        )
+        asr = OfflineRecognizer(assetManager, config)
+        Log.i(TAG, "SenseVoice ASR 已加载")
     }
 
-    /** GTCRN 降噪: FloatArray → FloatArray */
-    fun denoise(samples: FloatArray): FloatArray {
-        val e = enhancer ?: return samples
-        return try {
-            e.process(samples, SAMPLE_RATE)
-        } catch (ex: Exception) {
-            Log.e(TAG, "降噪失败", ex)
-            samples
-        }
+    /** 初始化说话人嵌入模型 */
+    fun initSpeakerEmbedding(modelPath: String) {
+        embedder = SpeakerEmbeddingExtractor(
+            assetManager,
+            SpeakerEmbeddingExtractorConfig(
+                model = modelPath,
+                numThreads = 1,
+                provider = "cpu"
+            )
+        )
+        Log.i(TAG, "说话人嵌入模型已加载")
     }
 
     /** SenseVoice ASR: FloatArray → 文本 */
-    fun recognize(samples: FloatArray): RecognitionResult {
+    fun recognize(samples: FloatArray): String {
         val r = asr ?: throw IllegalStateException("ASR 未初始化")
 
         val stream = r.createStream()
         stream.acceptWaveform(samples, SAMPLE_RATE)
         r.decode(stream)
-        val result = r.result(stream)
+        val result = r.getResult(stream)
 
-        return RecognitionResult(
-            text = result.text,
-            hasPunctuation = true
-        )
+        return result.text.ifEmpty {
+            "" // 无有效语音
+        }
     }
 
     /** 提取说话人嵌入: FloatArray → FloatArray(256) */
-    fun extractEmbedding(samples: FloatArray): FloatArray {
-        val e = embedder ?: throw IllegalStateException("嵌入模型未初始化")
+    fun extractEmbedding(samples: FloatArray): FloatArray? {
+        val e = embedder ?: return null
         return e.compute(samples, SAMPLE_RATE)
     }
 
@@ -129,7 +85,6 @@ class SherpaEngine(private val app: LiveSpeakerApp) {
     fun release() {
         asr?.release()
         embedder?.release()
-        enhancer = null
         asr = null
         embedder = null
         Log.i(TAG, "所有模型已释放")

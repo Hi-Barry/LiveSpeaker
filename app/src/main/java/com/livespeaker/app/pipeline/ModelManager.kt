@@ -124,10 +124,10 @@ class ModelManager(private val context: Context) {
         Log.i(TAG, "${info.name} 下载完成")
     }
 
-    private fun downloadFile(
+    private suspend fun downloadFile(
         urlString: String,
         dest: File,
-        onProgress: (Int) -> Unit
+        onProgress: suspend (Int) -> Unit
     ) {
         val url = URL(urlString)
         val conn = url.openConnection() as HttpURLConnection
