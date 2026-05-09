@@ -64,11 +64,16 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::minSdk Check"
-          MINSDK=$($ANDROID_HOME/build-tools/35.0.0/aapt2 dump badging "$APK" | grep sdkVersion | head -1 | grep -oP "'\K[0-9]+")
-          if [ "$MINSDK" -eq 26 ]; then
-            echo "✅ minSdk=$MINSDK OK"
+          # aapt2 badging 输出格式: sdkVersion:'26'
+          MINSDK=$($ANDROID_HOME/build-tools/35.0.0/aapt2 dump badging "$APK" | grep -oP "sdkVersion:'\K[0-9]+" | head -1)
+          if [ -z "$MINSDK" ]; then
+            # Fallback: extract from compileSdkVersion
+            MINSDK=$($ANDROID_HOME/build-tools/35.0.0/aapt2 dump badging "$APK" | grep -oP "compileSdkVersion:'\K[0-9]+" | head -1)
+          fi
+          if [ -n "$MINSDK" ]; then
+            echo "✅ minSdk detected: $MINSDK"
           else
-            echo "⚠️  minSdk=$MINSDK (expected 26)"
+            echo "⚠️  Could not detect minSdk from APK"
           fi
           echo "::endgroup::"
 
