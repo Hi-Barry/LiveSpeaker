@@ -78,7 +78,8 @@ dependencies {
 
     // sherpa-onnx (离线 ASR + 说话人识别 + 降噪 + VAD)
     // Available via JitPack: https://jitpack.io/#k2-fsa/sherpa-onnx
-    implementation("com.github.k2-fsa:sherpa-onnx:1.12.11")
+    // JitPack 发布版本对应 GitHub release tag (不带 'v' 前缀)
+    implementation("com.github.k2-fsa:sherpa-onnx:v1.13.1")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
