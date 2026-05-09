@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LiveSpeaker</string>
+    <string name="service_channel_name">实时转写</string>
+    <string name="service_channel_desc">LiveSpeaker 正在后台运行实时语音转写</string>
+    <string name="notification_title">LiveSpeaker 转写中</string>
+    <string name="notification_pause">暂停</string>
+    <string name="notification_stop">停止</string>
+    <string name="notification_resume">继续</string>
+    <string name="btn_start">开始录音</string>
+    <string name="btn_stop">停止录音</string>
+    <string name="label_speaker_unknown">未知说话人</string>
+    <string name="label_no_permission">需要录音权限</string>
+    <string name="label_model_downloading">模型下载中…</string>
+    <string name="label_model_ready">模型已就绪</string>
+    <string name="label_model_missing">模型未下载</string>
+</resources>

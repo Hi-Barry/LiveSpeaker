@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 录音权限 (必需) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- 前台服务权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- 通知权限 (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 悬浮窗权限 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- 网络权限 (模型下载) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- 存储权限 (模型存储, Android 10 以下) -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- 防止锁屏休眠 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:name=".LiveSpeakerApp"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LiveSpeaker"
+        android:requestLegacyExternalStorage="true" >
+
+        <!-- 主界面 -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.LiveSpeaker">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 前台转写服务 -->
+        <service
+            android:name=".service.TranscriptionService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|specialUse" />
+
+        <!-- 悬浮球服务 -->
+        <service
+            android:name=".ui.bubble.BubbleService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+
+    </application>
+
+</manifest>
