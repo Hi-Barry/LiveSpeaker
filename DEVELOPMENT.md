@@ -74,17 +74,37 @@
 1. **说话人嵌入暂不可用**: `SpeakerEmbeddingExtractor.compute()` API 签名待确认，目前 `extractEmbedding()` 返回 null
 2. **模型需手动下载**: ~270MB 模型文件不在仓库内，首次启动需网络下载
 3. **VAD 为简化版**: 当前用能量阈值 VAD，正式版应切换为 sherpa-onnx 内置的 Silero VAD
-4. **Release APK 仅一个架构**: arm64-v8a 和 armeabi-v7a 的 APK 在 Release 中可能被覆盖，需修复 artifact 命名
-5. **悬浮球为 View 实现**: 非 Compose，后续应统一
+4. **悬浮球为 View 实现**: 非 Compose，后续应统一
+5. **Firebase Test Lab 待配置**: CI job 已就绪，需用户手动添加 Service Account
 
 ### 🔮 下一步计划
 
 - [ ] 适配 `SpeakerEmbeddingExtractor.compute()` 正确签名
 - [ ] 切换为 Silero VAD（sherpa-onnx 内置）
 - [ ] 模型下载进度 UI
-- [ ] 说话人语音片段回放确认
-- [ ] 转写历史记录导出
 - [ ] 真机机房噪音测试
+- [ ] 配置 Firebase Test Lab（免费 15 次/天）
+
+---
+
+## 📅 2026-05-09 — CI 测试集成
+
+### 做了什么
+- 集成 Android 模拟器到 GitHub Actions CI
+- APK 静态分析 (aapt2 dump badging + permissions)
+- 模拟器冒烟测试 (安装 → 启动 → 进程检查 → 截图 → logcat)
+- Firebase Test Lab CI job (条件启用，待配置)
+
+### 踩了什么坑
+- **aapt2 badging 输出格式变化**：sdkVersion 行格式为 `sdkVersion:'26'`，正则需适配 `grep -oP "sdkVersion:'\K[0-9]+"`
+- **shell 多行 if 语句被拆分**：GitHub Actions 的 script 在 `|` 多行模式下，`if...then...fi` 跨行会被拆成多个 `sh -c` 调用导致语法错误。解决：单行 `&& ||` 替代
+- **模拟器启动成功但窗口名不可见**：`dumpsys window | grep mCurrentFocus` 返回空是正常的（可能是权限对话框或 app 无窗口焦点），用 `grep -q "com.livespeaker.app"` 检查整个 dumpsys 输出更可靠
+
+### 学到了什么
+- Android 模拟器在 CI 中启动约需 40 秒（Boot completed in 38969 ms）
+- 模拟器无麦克风，语音识别功能无法在 CI 中测试
+- Firebase Test Lab Spark 计划提供免费 15 次/天真机测试，但不需信用卡
+- CI 测试的最佳策略：静态分析 + 模拟器冒烟 + Firebase 真机（互补）
 
 ---
 
