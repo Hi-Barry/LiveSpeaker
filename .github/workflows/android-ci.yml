@@ -146,21 +146,21 @@ jobs:
             sleep 5
 
             echo "=== Checking if app is running ==="
-            FOCUSED=$(adb shell dumpsys window | grep mCurrentFocus)
+            FOCUSED=$(adb shell dumpsys window 2>/dev/null | grep mCurrentFocus || echo "")
             echo "Current focus: $FOCUSED"
 
-            if echo "$FOCUSED" | grep -q "com.livespeaker.app"; then
-              echo "✅ App launched successfully!"
-            else
-              echo "⚠️  App may not be in focus (expected if permission dialog is showing)"
-            fi
+            # Check if our app is in the foreground
+            adb shell dumpsys window 2>/dev/null | grep -q "com.livespeaker.app" && echo "✅ App is running!" || echo "⚠️  App window not detected (may be showing permission dialog)"
+
+            echo "=== App process check ==="
+            adb shell "ps -A 2>/dev/null | grep livespeaker" || echo "(no process found)"
 
             echo "=== Taking screenshot ==="
             adb exec-out screencap -p > /tmp/screenshot.png
-            echo "Screenshot saved"
+            echo "Screenshot saved to /tmp/screenshot.png"
 
-            echo "=== Dumping logcat (last 100 lines) ==="
-            adb logcat -d -t 100 | grep -i -E "livespeaker|AndroidRuntime|FATAL|crash" || echo "(no relevant logs)"
+            echo "=== Logcat (errors only) ==="
+            adb logcat -d -t 200 | grep -i -E "livespeaker|AndroidRuntime|FATAL" || echo "(no relevant errors)"
 
       - name: Upload Screenshot
         if: always()
