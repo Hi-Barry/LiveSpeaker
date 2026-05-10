@@ -152,4 +152,28 @@
 - 崩溃信息写入文件（非 logcat）对真机调试至关重要
 
 ---
+
+## 📅 2026-05-10 — CI 仪表化测试集成
+
+### 做了什么
+- **RecordingCrashTest**: 编写 Compose UI 仪表化测试，真正点击「开始录音」按钮后验证进程不崩溃
+  - `clickStartRecording_doesNotCrash` — 单击 FAB → 等 5 秒 → 断言 UI 仍存在
+  - `clickStartRecordingTwice_doesNotCrash` — 连续切换录音状态 → 验证无竞态崩溃
+- **CI workflow 升级**: 从纯冒烟测试（安装→启动→截图）升级为功能性回归测试
+  - Build 阶段新增 `assembleDebugAndroidTest` + 上传测试 APK
+  - Emulator 阶段：安装主 APK → 安装测试 APK → 授权 → `am instrument` 运行测试
+- **build.gradle.kts**: 添加 `ui-test-junit4` + `test:rules` 依赖
+
+### 踩了什么坑
+- **CI 冒烟测试的盲区**: `adb install → am start → ps check` 只能验证「安装+启动」，完全不会触发录音按钮点击 → 闪退永远抓不到
+- **Compose UI 测试需要额外依赖**: 仅有 `espresso-core` 不够，必须添加 `ui-test-junit4` + Compose BOM
+
+### 学到了什么
+- 仪表化测试是 CI 中唯一能真实模拟用户操作的机制
+- `createAndroidComposeRule` + `onNodeWithContentDescription("开始录音").performClick()` 能精确命中 Compose FAB
+- `GrantPermissionRule` 在模拟器上自动跳过权限弹窗
+- 测试 APK 和主 APK 必须分开构建（`assembleDebug` vs `assembleDebugAndroidTest`）
+- CI 模拟器无麦克风 ≠ 不能测录音启动链路 — 模型缺失时 Service 优雅停止才是我们要验证的「不崩溃」行为
+
+---
 > **最后更新**: 2026-05-10 | **维护者**: Hermes Agent + Hi-Barry
