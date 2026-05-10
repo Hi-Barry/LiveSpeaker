@@ -176,4 +176,20 @@
 - CI 模拟器无麦克风 ≠ 不能测录音启动链路 — 模型缺失时 Service 优雅停止才是我们要验证的「不崩溃」行为
 
 ---
-> **最后更新**: 2026-05-10 | **维护者**: Hermes Agent + Hi-Barry
+> **最后更新**: 2026-05-11 | **维护者**: Hermes Agent + Hi-Barry
+
+## 📅 2026-05-11 — CI emulator script 多行语法错误修复
+
+### 做了什么
+- **修复 emulator script 多行 if/then/fi**: android-emulator-runner 将每一行拆成独立 `sh -c` 调用 → 多行 if 块被截断 → `Syntax error: end of file unexpected (expecting "fi")` → exit code 2
+- **修复位置**:
+  1. ui.xml 存在性检查: `[ -f /tmp/ui.xml ] && ... || ...`
+  2. ps 进程存活性检查: `adb shell "ps -A ... | grep -q" && ... || { ...; exit 1; }`
+
+### 踩了什么坑
+- **同一错误出现两次**: v0.1.3 时修过一次多行条件 (commit `4b24002`)，v0.1.4 新增 uiautomator dump 调试代码时又写了多行 if，复现**完全相同**的 CI 崩溃
+- **教训**: android-emulator-runner 的 script 不能再出现任何多行条件语句，必须全部 `&& ||` 单行
+
+### 学到了什么
+- CI 脚本变更后需要检查「有没有多行 if/for/while」——应有自动化检查规则
+- 注释掉的代码块保留多行 if 也危险（YAML 缩进敏感）
