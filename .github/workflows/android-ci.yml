@@ -154,11 +154,7 @@ jobs:
             adb pull /sdcard/ui.xml /tmp/ui.xml 2>/dev/null || true
 
             # Show the UI hierarchy for debugging
-            if [ -f /tmp/ui.xml ]; then
-              echo "--- UI dump (first 2000 chars) ---"
-              head -c 2000 /tmp/ui.xml
-              echo ""
-            fi
+            [ -f /tmp/ui.xml ] && echo "--- UI dump (first 2000 chars) ---" && head -c 2000 /tmp/ui.xml && echo "" || echo "(no UI dump available)"
 
             echo "=== Clicking 开始录音 (center-bottom FAB) ==="
             # 获取屏幕尺寸
@@ -177,12 +173,7 @@ jobs:
             sleep 5
 
             echo "=== Verifying app still alive ==="
-            if adb shell "ps -A 2>/dev/null | grep -q livespeaker"; then
-              echo "✅ PASS — App process still alive after clicking 开始录音"
-            else
-              echo "❌ FAIL — App process DIED after clicking 开始录音!"
-              exit 1
-            fi
+            adb shell "ps -A 2>/dev/null | grep -q livespeaker" && echo "✅ PASS — App process still alive after clicking 开始录音" || { echo "❌ FAIL — App process DIED after clicking 开始录音!"; exit 1; }
 
             echo "=== Taking screenshot ==="
             adb exec-out screencap -p > /tmp/screenshot.png
