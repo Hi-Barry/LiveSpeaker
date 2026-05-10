@@ -126,4 +126,30 @@
 
 ---
 
-> **最后更新**: 2026-05-09 | **维护者**: Hermes Agent + Hi-Barry
+## 📅 2026-05-10 — bugfix: 开始录音闪退修复
+
+### 做了什么
+- **异步模型加载**: 将 SherpaEngine.initAsr() 从 onCreate 主线程同步加载改为后台协程异步加载，避免阻塞主线程→ANR→5秒 startForeground 超时崩溃
+- **全局 try-catch**: TranscriptionService.onCreate() 包裹 try-catch，崩溃时写日志到 filesDir/crash_oncreate.txt
+- **SherpaEngine 健壮性**: initAsr 返回 Boolean，增加文件存在性/大小预检（防下载不完整导致 native crash），recognize() release stream 防内存泄漏
+- **AudioRecorder 安全化**: start() 不抛 IllegalStateException，改返回 Boolean + 失败时自动释放资源
+- **startForeground 防卫**: Android 13+ 检查 POST_NOTIFICATIONS 权限；try-catch 包裹防 SecurityException
+- **EventBus 线程安全**: @Synchronized + toList() 快照遍历防 ConcurrentModificationException
+- **MainActivity 悬浮窗逻辑修复**: 悬浮窗权限缺失不再阻塞录音启动，改为 Toast 提示；注册模型错误广播接收器
+- **崩溃诊断**: 模型加载失败广播到 MainActivity，Toast 显示具体原因（文件缺失/损坏/超时）
+
+### 踩了什么坑
+- **5秒 startForeground 超时是大概率根因**: startForegroundService() → onCreate 主线程同步加载 228MB ONNX 模型 → onStartCommand 来不及调 startForeground() → ForegroundServiceDidNotStartInTimeException 闪退
+- **模型文件可能下载不完整**: 不检查文件大小的 initAsr → JNI SIGSEGV → 进程瞬间死掉，连 Java try-catch 都抓不住
+- **权限检查遗漏**: Android 13+ startForeground 需要 POST_NOTIFICATIONS → 未授权则 SecurityException
+- **EventBus 竞态**: mutableListOf 无保护 → IO 线程 emit 遍历同时主线程 remove/clear → crash
+
+### 学到了什么
+- Android 前台服务的「5秒法则」是硬约束，startForeground 必须在服务启动后 5 秒内调用
+- 大型模型加载（100MB+）绝不能在主线程做，必须在后台线程
+- sherpa-onnx 的 OfflineRecognizer 构造函数是同步阻塞的 JNI 调用
+- Thread.sleep/wait 在主线程（onStartCommand）阻塞仍会触发 ANR，应全部移入协程
+- 崩溃信息写入文件（非 logcat）对真机调试至关重要
+
+---
+> **最后更新**: 2026-05-10 | **维护者**: Hermes Agent + Hi-Barry

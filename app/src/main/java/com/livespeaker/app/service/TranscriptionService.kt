@@ -1,11 +1,14 @@
 package com.livespeaker.app.service
 
+import android.Manifest
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import com.livespeaker.app.LiveSpeakerApp
@@ -21,13 +24,18 @@ import kotlinx.coroutines.*
 /**
  * 前台转写服务。
  *
- * 生命周期: startService → 录音 → VAD → ASR → 说话人识别 → 通知栏更新
+ * 生命周期: startService → 异步加载模型 → startForeground → 录音 → VAD → ASR → 说话人识别
  */
 class TranscriptionService : Service() {
 
     companion object {
         private const val TAG = "TranscriptionService"
         private const val MIN_SEGMENT_SAMPLES = 8000
+        private const val MODEL_LOAD_TIMEOUT_MS = 30_000L
+
+        /** 模型加载错误广播，UI 层接收后显示错误提示 */
+        const val ACTION_MODEL_ERROR = "com.livespeaker.app.ACTION_MODEL_ERROR"
+        const val EXTRA_ERROR_MSG = "error_msg"
 
         fun start(context: Context) {
             val intent = Intent(context, TranscriptionService::class.java)
@@ -50,6 +58,8 @@ class TranscriptionService : Service() {
     private var state = RecordingState.IDLE
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var processingJob: Job? = null
+    private var modelLoadJob: Job? = null
+    @Volatile private var modelLoadError: String? = null
 
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -65,30 +75,71 @@ class TranscriptionService : Service() {
         super.onCreate()
         Log.i(TAG, "服务创建")
 
-        val filter = IntentFilter().apply {
-            addAction(TranscriptionNotification.ACTION_PAUSE)
-            addAction(TranscriptionNotification.ACTION_STOP)
-            addAction(TranscriptionNotification.ACTION_RESUME)
-        }
-        registerReceiver(notificationReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        try {
+            val filter = IntentFilter().apply {
+                addAction(TranscriptionNotification.ACTION_PAUSE)
+                addAction(TranscriptionNotification.ACTION_STOP)
+                addAction(TranscriptionNotification.ACTION_RESUME)
+            }
+            registerReceiver(notificationReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
 
-        val app = LiveSpeakerApp.instance
-        ringBuffer = RingBuffer()
-        audioRecorder = AudioRecorder(ringBuffer)
-        sherpaEngine = SherpaEngine(this)
-        speakerRepo = SpeakerRepository.fromApp()
-        clusterEngine = ClusterEngine(speakerRepo)
+            val app = LiveSpeakerApp.instance
+            ringBuffer = RingBuffer()
+            audioRecorder = AudioRecorder(ringBuffer)
+            sherpaEngine = SherpaEngine(this)
+            speakerRepo = SpeakerRepository.fromApp()
+            clusterEngine = ClusterEngine(speakerRepo)
 
-        // 初始化模型
-        val modelsDir = app.modelManager.modelsDir
-        val asrModel = java.io.File(modelsDir, "sense-voice/model.int8.onnx")
-        val tokensFile = java.io.File(modelsDir, "sense-voice/tokens.txt")
-        if (asrModel.exists() && tokensFile.exists()) {
-            sherpaEngine.initAsr(asrModel.absolutePath, tokensFile.absolutePath)
-        }
+            // ★ 异步加载模型 — 避免阻塞 onCreate 主线程
+            val modelsDir = app.modelManager.modelsDir
+            val asrModel = java.io.File(modelsDir, "sense-voice/model.int8.onnx")
+            val tokensFile = java.io.File(modelsDir, "sense-voice/tokens.txt")
 
-        vadProcessor = VadProcessor().apply {
-            onSpeechEnd = { segment -> handleSpeechSegment(segment) }
+            modelLoadJob = serviceScope.launch {
+                try {
+                    if (asrModel.exists() && tokensFile.exists()) {
+                        val ok = sherpaEngine.initAsr(asrModel.absolutePath, tokensFile.absolutePath)
+                        if (ok) {
+                            Log.i(TAG, "[Init] ASR 模型加载成功 " +
+                                    "(${asrModel.length() / 1024 / 1024}MB)")
+                        } else {
+                            modelLoadError = "ASR 模型文件损坏或不兼容"
+                            Log.e(TAG, "[Init] $modelLoadError")
+                        }
+                    } else {
+                        modelLoadError = "模型文件未下载 (${asrModel.name})"
+                        Log.w(TAG, "[Init] $modelLoadError — 路径: ${asrModel.absolutePath}")
+                    }
+                } catch (e: Exception) {
+                    modelLoadError = "模型加载异常: ${e.message}"
+                    Log.e(TAG, "[Init] 模型加载崩溃", e)
+                    writeCrashLog(e)
+                }
+                Log.i(TAG, "[Init] SherpaEngine.isReady: ${sherpaEngine.isReady}")
+            }
+
+            // 尝试加载说话人嵌入模型（非关键，失败不影响 ASR）
+            val speakerModel = java.io.File(modelsDir, "speaker/eres2net.onnx")
+            if (speakerModel.exists()) {
+                serviceScope.launch {
+                    try {
+                        sherpaEngine.initSpeakerEmbedding(speakerModel.absolutePath)
+                        Log.i(TAG, "[Init] 说话人嵌入模型已加载")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "[Init] 说话人模型加载失败（非关键）", e)
+                    }
+                }
+            }
+
+            vadProcessor = VadProcessor().apply {
+                onSpeechEnd = { segment -> handleSpeechSegment(segment) }
+            }
+
+            Log.i(TAG, "[Init] RingBuffer/AudioRecorder/ClusterEngine/VadProcessor: OK")
+        } catch (e: Exception) {
+            Log.e(TAG, "[Init] Service 初始化崩溃", e)
+            writeCrashLog(e)
+            stopSelf()
         }
     }
 
@@ -101,34 +152,89 @@ class TranscriptionService : Service() {
     }
 
     private fun startRecording() {
-        if (!sherpaEngine.isReady) {
-            Log.w(TAG, "模型未就绪")
+        // ★ 第 1 步：立即调 startForeground（满足 Android 5 秒超时要求）
+        state = RecordingState.RECORDING
+        try {
+            // Android 13+: 检查通知权限
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
+                    Log.w(TAG, "缺少通知权限，无法启动前台服务")
+                    state = RecordingState.IDLE
+                    stopSelf()
+                    return
+                }
+            }
+            startForeground(
+                TranscriptionNotification.NOTIFICATION_ID_VALUE,
+                TranscriptionNotification.build(this, RecordingState.RECORDING)
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground 失败", e)
+            state = RecordingState.IDLE
             stopSelf()
             return
         }
 
-        state = RecordingState.RECORDING
-        startForeground(
-            TranscriptionNotification.NOTIFICATION_ID_VALUE,
-            TranscriptionNotification.build(this, RecordingState.RECORDING)
-        )
-
-        audioRecorder.start()
-
+        // ★ 第 2 步：后台协程中等待模型就绪，然后启动录音
         processingJob = serviceScope.launch {
-            clusterEngine.loadProfiles()
-            val frame = ShortArray(4096)
-            while (isActive && state == RecordingState.RECORDING) {
-                val n = ringBuffer.read(frame)
-                if (n > 0) {
-                    vadProcessor.processFrame(if (n == frame.size) frame else frame.copyOf(n))
-                } else {
-                    delay(50)
+            try {
+                // 等待模型加载
+                val modelReady = waitForModel()
+                if (!modelReady) {
+                    Log.w(TAG, "模型未就绪: ${modelLoadError ?: "超时"}")
+                    updateNotification("模型加载失败 — ${modelLoadError ?: "超时"}")
+                    sendModelErrorBroadcast(modelLoadError ?: "模型加载超时")
+                    withContext(Dispatchers.Main) {
+                        state = RecordingState.IDLE
+                        stopSelf()
+                    }
+                    return@launch
                 }
+
+                // 启动录音
+                if (!audioRecorder.start()) {
+                    Log.e(TAG, "录音器启动失败")
+                    updateNotification("录音器启动失败")
+                    withContext(Dispatchers.Main) { stopSelf() }
+                    return@launch
+                }
+
+                // 加载已知说话人
+                clusterEngine.loadProfiles()
+
+                // 主处理循环
+                val frame = ShortArray(4096)
+                while (isActive && state == RecordingState.RECORDING) {
+                    val n = ringBuffer.read(frame)
+                    if (n > 0) {
+                        vadProcessor.processFrame(
+                            if (n == frame.size) frame else frame.copyOf(n)
+                        )
+                    } else {
+                        delay(50)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "处理循环异常", e)
             }
         }
 
         Log.i(TAG, "录音和转写已启动")
+    }
+
+    /** 等待模型就绪（最多 30 秒） */
+    private suspend fun waitForModel(): Boolean {
+        val startTime = System.currentTimeMillis()
+        while (!sherpaEngine.isReady && modelLoadError == null) {
+            if (System.currentTimeMillis() - startTime > MODEL_LOAD_TIMEOUT_MS) {
+                modelLoadError = "模型加载超时 (${MODEL_LOAD_TIMEOUT_MS / 1000}s)"
+                return false
+            }
+            delay(200)
+        }
+        return sherpaEngine.isReady
     }
 
     private fun handleSpeechSegment(audio: ShortArray) {
@@ -176,6 +282,26 @@ class TranscriptionService : Service() {
         manager.notify(TranscriptionNotification.NOTIFICATION_ID_VALUE, notification)
     }
 
+    private fun sendModelErrorBroadcast(error: String) {
+        try {
+            val intent = Intent(ACTION_MODEL_ERROR).apply {
+                putExtra(EXTRA_ERROR_MSG, error)
+                setPackage(packageName)
+            }
+            sendBroadcast(intent)
+        } catch (_: Exception) {}
+    }
+
+    /** 将崩溃信息写入文件，方便用户反馈 */
+    private fun writeCrashLog(e: Exception) {
+        try {
+            val crashLog = java.io.File(filesDir, "crash_oncreate.txt")
+            crashLog.writeText(
+                "${e.javaClass.name}: ${e.message}\n${e.stackTraceToString()}"
+            )
+        } catch (_: Exception) {}
+    }
+
     private fun pause() {
         if (!state.canPause()) return
         state = RecordingState.PAUSED
@@ -197,6 +323,7 @@ class TranscriptionService : Service() {
     override fun onDestroy() {
         state = RecordingState.STOPPED
         processingJob?.cancel()
+        modelLoadJob?.cancel()
         audioRecorder.release()
         vadProcessor.forceEndSegment()
         sherpaEngine.release()
@@ -210,13 +337,32 @@ class TranscriptionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 }
 
-// Event bus
+// ═══════════════════════════════════════════════
+// Event bus — 线程安全版本
+// ═══════════════════════════════════════════════
 object TranscriptionEventBus {
     private val listeners = mutableListOf<(TranscriptionLine) -> Unit>()
-    fun emit(line: TranscriptionLine) { listeners.forEach { it(line) } }
-    fun listen(listener: (TranscriptionLine) -> Unit) { listeners.add(listener) }
-    fun remove(listener: (TranscriptionLine) -> Unit) { listeners.remove(listener) }
-    fun clear() { listeners.clear() }
+
+    @Synchronized
+    fun emit(line: TranscriptionLine) {
+        // 拷贝一份再遍历，防止 emit 过程中被 remove 导致 ConcurrentModificationException
+        listeners.toList().forEach { it(line) }
+    }
+
+    @Synchronized
+    fun listen(listener: (TranscriptionLine) -> Unit) {
+        listeners.add(listener)
+    }
+
+    @Synchronized
+    fun remove(listener: (TranscriptionLine) -> Unit) {
+        listeners.remove(listener)
+    }
+
+    @Synchronized
+    fun clear() {
+        listeners.clear()
+    }
 }
 
 data class TranscriptionLine(

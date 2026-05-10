@@ -3,6 +3,7 @@ package com.livespeaker.app.pipeline
 import android.content.res.AssetManager
 import android.util.Log
 import com.k2fsa.sherpa.onnx.*
+import java.io.File
 
 /**
  * sherpa-onnx 引擎总封装。
@@ -23,6 +24,9 @@ class SherpaEngine(private val context: android.content.Context) {
     companion object {
         private const val TAG = "SherpaEngine"
         private const val SAMPLE_RATE = 16000
+        /** 模型文件至少要有这么大才算有效（防止下载不完整） */
+        private const val MIN_MODEL_SIZE_BYTES = 10 * 1024 * 1024L  // 10MB
+        private const val MIN_TOKENS_SIZE_BYTES = 100L
     }
 
     private var asr: OfflineRecognizer? = null
@@ -31,25 +35,62 @@ class SherpaEngine(private val context: android.content.Context) {
     val isReady: Boolean
         get() = asr != null
 
-    /** 初始化 SenseVoice ASR 模型 (仅同步初始化) */
-    fun initAsr(modelPath: String, tokensPath: String) {
-        val config = OfflineRecognizerConfig(
-            modelConfig = OfflineModelConfig(
-                senseVoice = OfflineSenseVoiceModelConfig(
-                    model = modelPath,
-                    language = "auto"
-                ),
-                tokens = tokensPath,
-                numThreads = 2,
-                provider = "cpu"
+    /**
+     * 初始化 SenseVoice ASR 模型。
+     * @return true 表示加载成功
+     */
+    fun initAsr(modelPath: String, tokensPath: String): Boolean {
+        val modelFile = File(modelPath)
+        val tokensFile = File(tokensPath)
+
+        // 预检：文件存在性
+        if (!modelFile.exists()) {
+            Log.e(TAG, "ASR 模型文件不存在: $modelPath")
+            return false
+        }
+        if (!tokensFile.exists()) {
+            Log.e(TAG, "tokens 文件不存在: $tokensPath")
+            return false
+        }
+
+        // 预检：文件大小有效性（防止下载不完整导致 native crash）
+        if (modelFile.length() < MIN_MODEL_SIZE_BYTES) {
+            Log.e(TAG, "ASR 模型文件过小 (${modelFile.length()} bytes)，可能下载不完整")
+            return false
+        }
+        if (tokensFile.length() < MIN_TOKENS_SIZE_BYTES) {
+            Log.e(TAG, "tokens 文件过小 (${tokensFile.length()} bytes)")
+            return false
+        }
+
+        return try {
+            val config = OfflineRecognizerConfig(
+                modelConfig = OfflineModelConfig(
+                    senseVoice = OfflineSenseVoiceModelConfig(
+                        model = modelPath,
+                        language = "auto"
+                    ),
+                    tokens = tokensPath,
+                    numThreads = 2,
+                    provider = "cpu"
+                )
             )
-        )
-        asr = OfflineRecognizer(assetManager, config)
-        Log.i(TAG, "SenseVoice ASR 已加载")
+            asr = OfflineRecognizer(assetManager, config)
+            Log.i(TAG, "SenseVoice ASR 已加载 (${modelFile.length() / 1024 / 1024}MB)")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "ASR 初始化失败: ${e.javaClass.name} — ${e.message}", e)
+            false
+        }
     }
 
     /** 初始化说话人嵌入模型 */
     fun initSpeakerEmbedding(modelPath: String) {
+        val modelFile = File(modelPath)
+        if (!modelFile.exists()) {
+            Log.w(TAG, "说话人模型文件不存在: $modelPath")
+            return
+        }
         embedder = SpeakerEmbeddingExtractor(
             assetManager,
             SpeakerEmbeddingExtractorConfig(
@@ -61,17 +102,21 @@ class SherpaEngine(private val context: android.content.Context) {
         Log.i(TAG, "说话人嵌入模型已加载")
     }
 
-    /** SenseVoice ASR: FloatArray → 文本 */
+    /**
+     * SenseVoice ASR: FloatArray → 文本
+     * 每次调用创建新的 stream 并在 finally 中释放，防止内存泄漏。
+     */
     fun recognize(samples: FloatArray): String {
         val r = asr ?: throw IllegalStateException("ASR 未初始化")
 
         val stream = r.createStream()
-        stream.acceptWaveform(samples, SAMPLE_RATE)
-        r.decode(stream)
-        val result = r.getResult(stream)
-
-        return result.text.ifEmpty {
-            "" // 无有效语音
+        return try {
+            stream.acceptWaveform(samples, SAMPLE_RATE)
+            r.decode(stream)
+            val result = r.getResult(stream)
+            result.text.ifEmpty { "" }
+        } finally {
+            try { r.release(stream) } catch (_: Exception) {}
         }
     }
 
