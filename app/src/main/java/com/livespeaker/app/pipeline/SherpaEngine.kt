@@ -104,20 +104,16 @@ class SherpaEngine(private val context: android.content.Context) {
 
     /**
      * SenseVoice ASR: FloatArray → 文本
-     * 每次调用创建新的 stream 并在 finally 中释放，防止内存泄漏。
      */
     fun recognize(samples: FloatArray): String {
         val r = asr ?: throw IllegalStateException("ASR 未初始化")
 
         val stream = r.createStream()
-        return try {
-            stream.acceptWaveform(samples, SAMPLE_RATE)
-            r.decode(stream)
-            val result = r.getResult(stream)
-            result.text.ifEmpty { "" }
-        } finally {
-            try { r.release(stream) } catch (_: Exception) {}
-        }
+        stream.acceptWaveform(samples, SAMPLE_RATE)
+        r.decode(stream)
+        val result = r.getResult(stream)
+
+        return result.text.ifEmpty { "" }
     }
 
     /** 提取说话人嵌入: FloatArray → FloatArray(256)
