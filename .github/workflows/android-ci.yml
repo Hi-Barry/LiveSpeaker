@@ -158,17 +158,8 @@ jobs:
             [ -f /tmp/ui.xml ] && echo "--- UI dump (first 2000 chars) ---" && head -c 2000 /tmp/ui.xml && echo "" || echo "(no UI dump available)"
 
             echo "=== Clicking 开始录音 (center-bottom FAB) ==="
-            # 获取屏幕尺寸
-            SIZE=$(adb shell wm size | grep -oP '\d+x\d+')
-            W=$(echo $SIZE | cut -d'x' -f1)
-            H=$(echo $SIZE | cut -d'x' -f2)
-            echo "Screen: ${W}x${H}"
-
-            # FAB 位于右下角: x≈88% width, y≈88% height
-            FX=$((W * 88 / 100))
-            FY=$((H * 88 / 100))
-            echo "Tapping FAB at: ${FX}x${FY}"
-            adb shell input tap $FX $FY
+            # 获取屏幕尺寸 → 算 FAB 位置 → tap（必须在同一行，因为每行是独立 sh -c）
+            SIZE=$(adb shell wm size | grep -oP '\d+x\d+'); W=$(echo $SIZE | cut -d'x' -f1); H=$(echo $SIZE | cut -d'x' -f2); echo "Screen: ${W}x${H}"; FX=$((W * 88 / 100)); FY=$((H * 88 / 100)); echo "Tapping FAB at: ${FX}x${FY}"; adb shell input tap $FX $FY
 
             echo "=== Waiting for Service lifecycle ==="
             sleep 5
