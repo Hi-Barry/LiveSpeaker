@@ -1,6 +1,7 @@
 package com.livespeaker.app.audio
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
@@ -136,7 +137,7 @@ class AudioRecorder(private val outputDir: File) {
 
         _segments.value = files.mapIndexed { i, file ->
             val idx = file.nameWithoutExtension.split("_").lastOrNull()?.toIntOrNull() ?: (i + 1)
-            val duration = file.length() * 8 / (16000L * 2) * 1000
+            val duration = getAudioDuration(file)
             Segment(
                 file = file,
                 index = idx,
@@ -147,6 +148,33 @@ class AudioRecorder(private val outputDir: File) {
     }
 
     // ─── 内部逻辑 ───
+
+    /**
+     * 用 MediaMetadataRetriever 从 M4A/AAC 容器元数据中读取真实时长。
+     *
+     * 之前用 file.length() * 8 / (sampleRate * bitDepth) 反算时长是错误的：
+     * M4A 是 AAC 有损压缩格式，文件大小与原始 PCM 数据量无线性关系，
+     * 导致 1 分钟录音显示为 2:02。
+     *
+     * MediaMetadataRetriever 直接读取容器 header 中的 duration 字段，
+     * 由 MediaRecorder.stop() 写入，精确且不受压缩比影响。
+     *
+     * @return 时长（毫秒），无法获取时返回 0
+     */
+    private fun getAudioDuration(file: File): Long {
+        if (!file.exists() || file.length() == 0L) return 0L
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(file.absolutePath)
+            val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            durationStr?.toLongOrNull() ?: 0L
+        } catch (e: Exception) {
+            Log.w(TAG, "无法读取文件时长: ${file.name}, ${e.message}")
+            0L
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
+    }
 
     private fun startNewSegment() {
         val timestamp = System.currentTimeMillis()
@@ -202,7 +230,8 @@ class AudioRecorder(private val outputDir: File) {
         mediaRecorder = null
 
         // 记录已完成的片段
-        val duration = if (file.exists()) file.length() * 8 / (16000L * 2) * 1000 else SEGMENT_DURATION_MS
+        // 等文件写入完成后再获取时长（MediaRecorder.stop() 会 finalize 文件）
+        val duration = if (file.exists()) getAudioDuration(file) else SEGMENT_DURATION_MS
         val segment = Segment(
             file = file,
             index = currentSegmentIndex,

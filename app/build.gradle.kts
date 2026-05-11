@@ -12,8 +12,8 @@ android {
         applicationId = "com.livespeaker.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.1"
+        versionCode = 3
+        versionName = "0.2.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
