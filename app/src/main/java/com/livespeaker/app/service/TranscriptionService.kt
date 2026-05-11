@@ -170,7 +170,9 @@ class TranscriptionService : Service() {
 
     private fun startRecording() {
         // ★ 第 1 步：立即调 startForeground（满足 Android 5 秒超时要求）
-        state = RecordingState.RECORDING
+        // 初始状态为 PREPARING，模型就绪后才切 RECORDING
+        state = RecordingState.PREPARING
+        sendStateEvent(RecordingState.PREPARING)
         try {
             // Android 13+: 检查通知权限
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -179,17 +181,19 @@ class TranscriptionService : Service() {
                 ) {
                     Log.w(TAG, "缺少通知权限，无法启动前台服务")
                     state = RecordingState.IDLE
+                    sendStateEvent(RecordingState.IDLE)
                     stopSelf()
                     return
                 }
             }
             startForeground(
                 TranscriptionNotification.NOTIFICATION_ID_VALUE,
-                TranscriptionNotification.build(this, RecordingState.RECORDING)
+                TranscriptionNotification.build(this, RecordingState.PREPARING, "准备中...")
             )
         } catch (e: Exception) {
             Log.e(TAG, "startForeground 失败", e)
             state = RecordingState.IDLE
+            sendStateEvent(RecordingState.IDLE)
             stopSelf()
             return
         }
@@ -197,23 +201,28 @@ class TranscriptionService : Service() {
         // ★ 第 2 步：后台协程中等待模型就绪，然后启动录音
         processingJob = serviceScope.launch {
             try {
-                // 等待模型加载
+                // 等待模型加载（含下载进度更新通知栏）
                 val modelReady = waitForModel()
                 if (!modelReady) {
                     Log.w(TAG, "模型未就绪: ${modelLoadError ?: "超时"}")
-                    updateNotification("模型加载失败 — ${modelLoadError ?: "超时"}")
                     sendModelErrorBroadcast(modelLoadError ?: "模型加载超时")
-                    withContext(Dispatchers.Main) {
-                        state = RecordingState.IDLE
-                        stopSelf()
-                    }
+                    state = RecordingState.IDLE
+                    sendStateEvent(RecordingState.IDLE)
+                    withContext(Dispatchers.Main) { stopSelf() }
                     return@launch
                 }
+
+                // 模型就绪 → 切到录音中
+                state = RecordingState.RECORDING
+                sendStateEvent(RecordingState.RECORDING)
+                updateNotification("录音中", RecordingState.RECORDING)
 
                 // 启动录音
                 if (!audioRecorder.start()) {
                     Log.e(TAG, "录音器启动失败")
                     updateNotification("录音器启动失败")
+                    state = RecordingState.IDLE
+                    sendStateEvent(RecordingState.IDLE)
                     withContext(Dispatchers.Main) { stopSelf() }
                     return@launch
                 }
@@ -299,10 +308,16 @@ class TranscriptionService : Service() {
         }
     }
 
-    private fun updateNotification(text: String) {
-        val notification = TranscriptionNotification.build(this, state, text)
+    private fun updateNotification(text: String, overrideState: RecordingState? = null) {
+        val notification = TranscriptionNotification.build(this, overrideState ?: state, text)
         val manager = getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager
         manager.notify(TranscriptionNotification.NOTIFICATION_ID_VALUE, notification)
+    }
+
+    private fun sendStateEvent(s: RecordingState) {
+        try {
+            TranscriptionEventBus.emitState(s)
+        } catch (_: Exception) {}
     }
 
     private fun sendModelErrorBroadcast(error: String) {
@@ -328,6 +343,7 @@ class TranscriptionService : Service() {
     private fun pause() {
         if (!state.canPause()) return
         state = RecordingState.PAUSED
+        sendStateEvent(RecordingState.PAUSED)
         audioRecorder.stop()
         processingJob?.cancel()
         vadProcessor.forceEndSegment()
@@ -364,27 +380,49 @@ class TranscriptionService : Service() {
 // Event bus — 线程安全版本
 // ═══════════════════════════════════════════════
 object TranscriptionEventBus {
-    private val listeners = mutableListOf<(TranscriptionLine) -> Unit>()
+    private val lineListeners = mutableListOf<(TranscriptionLine) -> Unit>()
+    private val stateListeners = mutableListOf<(RecordingState) -> Unit>()
+
+    // ── 转写行事件 ──
 
     @Synchronized
     fun emit(line: TranscriptionLine) {
-        // 拷贝一份再遍历，防止 emit 过程中被 remove 导致 ConcurrentModificationException
-        listeners.toList().forEach { it(line) }
+        lineListeners.toList().forEach { it(line) }
     }
 
     @Synchronized
     fun listen(listener: (TranscriptionLine) -> Unit) {
-        listeners.add(listener)
+        lineListeners.add(listener)
     }
 
     @Synchronized
-    fun remove(listener: (TranscriptionLine) -> Unit) {
-        listeners.remove(listener)
+    fun removeLineListener(listener: (TranscriptionLine) -> Unit) {
+        lineListeners.remove(listener)
     }
+
+    // ── 状态事件 ──
+
+    @Synchronized
+    fun emitState(state: RecordingState) {
+        stateListeners.toList().forEach { it(state) }
+    }
+
+    @Synchronized
+    fun listenState(listener: (RecordingState) -> Unit) {
+        stateListeners.add(listener)
+    }
+
+    @Synchronized
+    fun removeStateListener(listener: (RecordingState) -> Unit) {
+        stateListeners.remove(listener)
+    }
+
+    // ── 清理 ──
 
     @Synchronized
     fun clear() {
-        listeners.clear()
+        lineListeners.clear()
+        stateListeners.clear()
     }
 }
 

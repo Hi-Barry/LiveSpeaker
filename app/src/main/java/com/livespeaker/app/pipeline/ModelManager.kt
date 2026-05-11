@@ -153,8 +153,8 @@ class ModelManager(private val context: Context) {
     ) {
         val url = URL(urlString)
         val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 15000
-        conn.readTimeout = 15000
+        conn.connectTimeout = 30000   // 连接超时 30s（给国内镜像足够时间）
+        conn.readTimeout = 120000    // 读取超时 120s（228MB 慢速网络需要）
 
         // 处理重定向
         conn.instanceFollowRedirects = true

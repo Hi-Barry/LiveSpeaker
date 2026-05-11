@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.livespeaker.app.service.RecordingState
 import com.livespeaker.app.service.TranscriptionEventBus
 import com.livespeaker.app.service.TranscriptionLine
 import kotlinx.coroutines.launch
@@ -33,14 +34,18 @@ fun MainScreen(
     onStart: () -> Unit,
     onStop: () -> Unit
 ) {
-    var isRecording by remember { mutableStateOf(false) }
+    var serviceState by remember { mutableStateOf(RecordingState.IDLE) }
     val lines = remember { mutableStateListOf<TranscriptionLine>() }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    val isPreparing = serviceState == RecordingState.PREPARING
+    val isRecording = serviceState == RecordingState.RECORDING
+    val isActive = isPreparing || isRecording
+
     // 注册事件监听
     DisposableEffect(Unit) {
-        val listener: (TranscriptionLine) -> Unit = { line ->
+        val lineListener: (TranscriptionLine) -> Unit = { line ->
             lines.add(line)
             scope.launch {
                 if (lines.size > 1) {
@@ -48,8 +53,17 @@ fun MainScreen(
                 }
             }
         }
-        TranscriptionEventBus.listen(listener)
-        onDispose { TranscriptionEventBus.remove(listener) }
+        TranscriptionEventBus.listen(lineListener)
+
+        val stateListener: (RecordingState) -> Unit = { s ->
+            serviceState = s
+        }
+        TranscriptionEventBus.listenState(stateListener)
+
+        onDispose {
+            TranscriptionEventBus.removeLineListener(lineListener)
+            TranscriptionEventBus.removeStateListener(stateListener)
+        }
     }
 
     Scaffold(
@@ -64,22 +78,30 @@ fun MainScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    if (isRecording) {
+                    if (isActive) {
                         onStop()
-                        isRecording = false
                     } else {
                         onStart()
-                        isRecording = true
                     }
                 },
-                containerColor = if (isRecording)
-                    MaterialTheme.colorScheme.error
-                else
-                    MaterialTheme.colorScheme.primary
+                containerColor = when {
+                    isPreparing -> MaterialTheme.colorScheme.secondary
+                    isRecording -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.primary
+                },
+                enabled = !isPreparing  // 准备中不可点击
             ) {
                 Icon(
-                    imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.PlayArrow,
-                    contentDescription = if (isRecording) "停止录音" else "开始录音"
+                    imageVector = when {
+                        isPreparing -> Icons.Default.HourglassEmpty
+                        isRecording -> Icons.Default.Stop
+                        else -> Icons.Default.PlayArrow
+                    },
+                    contentDescription = when {
+                        isPreparing -> "准备中"
+                        isRecording -> "停止录音"
+                        else -> "开始录音"
+                    }
                 )
             }
         }
@@ -90,7 +112,7 @@ fun MainScreen(
                 .padding(padding)
         ) {
             // 状态栏
-            RecordingStatusBar(isRecording = isRecording, lineCount = lines.size)
+            RecordingStatusBar(isActive = isActive, isPreparing = isPreparing, lineCount = lines.size)
 
             // 转写列表
             if (lines.isEmpty()) {
@@ -136,7 +158,7 @@ fun MainScreen(
 }
 
 @Composable
-private fun RecordingStatusBar(isRecording: Boolean, lineCount: Int) {
+private fun RecordingStatusBar(isActive: Boolean, isPreparing: Boolean, lineCount: Int) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -149,14 +171,21 @@ private fun RecordingStatusBar(isRecording: Boolean, lineCount: Int) {
             modifier = Modifier
                 .size(8.dp)
                 .background(
-                    if (isRecording) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    when {
+                        isPreparing -> MaterialTheme.colorScheme.secondary
+                        isActive -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     shape = androidx.compose.foundation.shape.CircleShape
                 )
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            text = if (isRecording) "录音中" else "未录音",
+            text = when {
+                isPreparing -> "准备中..."
+                isActive -> "录音中"
+                else -> "未录音"
+            },
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Medium
         )

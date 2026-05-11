@@ -235,3 +235,21 @@
 ### 踩了什么坑
 - **SettingsScreen 编译错误**: `modelManager.MODELS` 通过实例访问 companion object 导致 `Unresolved reference`，改为 `ModelManager.MODELS` 静态访问 + 显式 `List<Boolean>` 类型
 - **下载进度 vs 通知时序**: 下载发生在 `onCreate()`，但 `startForeground()` 在 `onStartCommand()` → 不能在下载回调中直接 `updateNotification()`。解决：`waitForModel()` 轮询 `downloadProgress`
+
+---
+> **最后更新**: 2026-05-11 | **维护者**: Hermes Agent + Hi-Barry
+
+## 📅 2026-05-11 — 状态机重构：PREPARING + EventBus 驱动 UI
+
+### 做了什么
+- **RecordingState 新增 PREPARING**: IDLE → PREPARING → RECORDING，准备期间 FAB 显示 ⌛ 不可点击、状态栏显示"准备中..."
+- **EventBus 状态通道**: `emitState(RecordingState)` + `listenState`，`TranscriptionService` 每次状态变更广播，`MainScreen` 订阅后同步 FAB 图标/颜色/文字
+- **通知流修复**: `startRecording()` 初始 `PREPARING` → 下载进度 `waitForModel()` → 模型就绪后切 `RECORDING` + 通知"录音中"
+- **下载超时提升**: connectTimeout 15s→30s, readTimeout 15s→120s（228MB 慢速网络）
+
+### 踩了什么坑
+- **FAB 自己管理 isRecording 变量**: 点 FAB 立即设 true，但 Service 里模型还在下载 → 超时报错 → 状态对不上。改为 Service 广播真实状态驱动 UI
+- **通知栏与 UI 状态割裂**: `startForeground("录音中")` 但实际还在下载模型。改初始 `PREPARING` + "准备中..."
+
+### 学到了什么
+- Android 前台服务的通知状态应该诚实地反映当前阶段，不能为了好看提前亮"录音中"

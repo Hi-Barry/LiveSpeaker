@@ -35,7 +35,7 @@ object TranscriptionNotification {
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle(context.getString(R.string.notification_title))
             .setContentIntent(contentIntent)
-            .setOngoing(state == RecordingState.RECORDING)
+            .setOngoing(state == RecordingState.RECORDING || state == RecordingState.PREPARING)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOnlyAlertOnce(true)
 
