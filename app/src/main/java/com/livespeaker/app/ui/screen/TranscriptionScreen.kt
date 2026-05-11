@@ -78,6 +78,7 @@ fun MainScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
+                    if (isPreparing) return@FloatingActionButton  // 准备中忽略点击
                     if (isActive) {
                         onStop()
                     } else {
@@ -88,8 +89,7 @@ fun MainScreen(
                     isPreparing -> MaterialTheme.colorScheme.secondary
                     isRecording -> MaterialTheme.colorScheme.error
                     else -> MaterialTheme.colorScheme.primary
-                },
-                enabled = !isPreparing  // 准备中不可点击
+                }
             ) {
                 Icon(
                     imageVector = when {
