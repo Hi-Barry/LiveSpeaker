@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.livespeaker.app.LiveSpeakerApp
+import com.livespeaker.app.pipeline.ModelManager
 
 /**
  * 设置页面。
@@ -25,8 +26,8 @@ fun SettingsScreen(
     var showGtcrnInfo by remember { mutableStateOf(false) }
 
     val modelManager = remember { LiveSpeakerApp.instance.modelManager }
-    val modelStatuses = remember {
-        modelManager.MODELS.map { modelManager.isModelReady(it) }
+    val modelStatuses: List<Boolean> = remember {
+        ModelManager.MODELS.map { modelManager.isModelReady(it) }
     }
 
     Scaffold(
