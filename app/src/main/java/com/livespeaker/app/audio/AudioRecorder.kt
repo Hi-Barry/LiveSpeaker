@@ -54,15 +54,16 @@ class AudioRecorder(private val outputDir: File) {
 
     /**
      * 开始录音。自动创建第一个片段。
+     * 历史录音文件会被加载到列表中，不会被清除。
      * @return true 启动成功
      */
     fun start(): Boolean {
         if (state.value != State.IDLE) return true
 
         return try {
-            currentSegmentIndex = 0
+            loadExistingSegments()
+            currentSegmentIndex = _segments.value.size
             sessionStartTime = System.currentTimeMillis()
-            _segments.value = emptyList()
             startNewSegment()
             true
         } catch (e: Exception) {
@@ -118,6 +119,27 @@ class AudioRecorder(private val outputDir: File) {
     fun release() {
         stop()
         handler.removeCallbacksAndMessages(null)
+    }
+
+    /**
+     * 从磁盘扫描已有录音文件，恢复片段列表。
+     */
+    private fun loadExistingSegments() {
+        val files = outputDir.listFiles()
+            ?.filter { it.extension == "m4a" && it.name.startsWith("recording_") }
+            ?.sortedBy { it.lastModified() }
+            ?: emptyList()
+
+        _segments.value = files.mapIndexed { i, file ->
+            val idx = file.nameWithoutExtension.split("_").lastOrNull()?.toIntOrNull() ?: (i + 1)
+            val duration = file.length() * 8 / (16000L * 2) * 1000
+            Segment(
+                file = file,
+                index = idx,
+                durationMs = duration,
+                timestamp = file.lastModified()
+            )
+        }
     }
 
     // ─── 内部逻辑 ───
