@@ -126,4 +126,80 @@
 
 ---
 
-> **最后更新**: 2026-05-09 | **维护者**: Hermes Agent + Hi-Barry
+## 📅 2026-05-10 — bugfix: 开始录音闪退修复
+
+### 做了什么
+- **异步模型加载**: 将 SherpaEngine.initAsr() 从 onCreate 主线程同步加载改为后台协程异步加载，避免阻塞主线程→ANR→5秒 startForeground 超时崩溃
+- **全局 try-catch**: TranscriptionService.onCreate() 包裹 try-catch，崩溃时写日志到 filesDir/crash_oncreate.txt
+- **SherpaEngine 健壮性**: initAsr 返回 Boolean，增加文件存在性/大小预检（防下载不完整导致 native crash），recognize() release stream 防内存泄漏
+- **AudioRecorder 安全化**: start() 不抛 IllegalStateException，改返回 Boolean + 失败时自动释放资源
+- **startForeground 防卫**: Android 13+ 检查 POST_NOTIFICATIONS 权限；try-catch 包裹防 SecurityException
+- **EventBus 线程安全**: @Synchronized + toList() 快照遍历防 ConcurrentModificationException
+- **MainActivity 悬浮窗逻辑修复**: 悬浮窗权限缺失不再阻塞录音启动，改为 Toast 提示；注册模型错误广播接收器
+- **崩溃诊断**: 模型加载失败广播到 MainActivity，Toast 显示具体原因（文件缺失/损坏/超时）
+
+### 踩了什么坑
+- **5秒 startForeground 超时是大概率根因**: startForegroundService() → onCreate 主线程同步加载 228MB ONNX 模型 → onStartCommand 来不及调 startForeground() → ForegroundServiceDidNotStartInTimeException 闪退
+- **模型文件可能下载不完整**: 不检查文件大小的 initAsr → JNI SIGSEGV → 进程瞬间死掉，连 Java try-catch 都抓不住
+- **权限检查遗漏**: Android 13+ startForeground 需要 POST_NOTIFICATIONS → 未授权则 SecurityException
+- **EventBus 竞态**: mutableListOf 无保护 → IO 线程 emit 遍历同时主线程 remove/clear → crash
+
+### 学到了什么
+- Android 前台服务的「5秒法则」是硬约束，startForeground 必须在服务启动后 5 秒内调用
+- 大型模型加载（100MB+）绝不能在主线程做，必须在后台线程
+- sherpa-onnx 的 OfflineRecognizer 构造函数是同步阻塞的 JNI 调用
+- Thread.sleep/wait 在主线程（onStartCommand）阻塞仍会触发 ANR，应全部移入协程
+- 崩溃信息写入文件（非 logcat）对真机调试至关重要
+
+---
+
+## 📅 2026-05-10 — CI 仪表化测试集成
+
+### 做了什么
+- **RecordingCrashTest**: 编写 Compose UI 仪表化测试，真正点击「开始录音」按钮后验证进程不崩溃
+  - `clickStartRecording_doesNotCrash` — 单击 FAB → 等 5 秒 → 断言 UI 仍存在
+  - `clickStartRecordingTwice_doesNotCrash` — 连续切换录音状态 → 验证无竞态崩溃
+- **CI workflow 升级**: 从纯冒烟测试（安装→启动→截图）升级为功能性回归测试
+  - Build 阶段新增 `assembleDebugAndroidTest` + 上传测试 APK
+  - Emulator 阶段：安装主 APK → 安装测试 APK → 授权 → `am instrument` 运行测试
+- **build.gradle.kts**: 添加 `ui-test-junit4` + `test:rules` 依赖
+
+### 踩了什么坑
+- **CI 冒烟测试的盲区**: `adb install → am start → ps check` 只能验证「安装+启动」，完全不会触发录音按钮点击 → 闪退永远抓不到
+- **Compose UI 测试需要额外依赖**: 仅有 `espresso-core` 不够，必须添加 `ui-test-junit4` + Compose BOM
+
+### 学到了什么
+- 仪表化测试是 CI 中唯一能真实模拟用户操作的机制
+- `createAndroidComposeRule` + `onNodeWithContentDescription("开始录音").performClick()` 能精确命中 Compose FAB
+- `GrantPermissionRule` 在模拟器上自动跳过权限弹窗
+- 测试 APK 和主 APK 必须分开构建（`assembleDebug` vs `assembleDebugAndroidTest`）
+- CI 模拟器无麦克风 ≠ 不能测录音启动链路 — 模型缺失时 Service 优雅停止才是我们要验证的「不崩溃」行为
+
+---
+> **最后更新**: 2026-05-11 | **维护者**: Hermes Agent + Hi-Barry
+
+## 📅 2026-05-11 — CI emulator script 多行语法错误修复
+
+### 做了什么
+- **修复 emulator script 多行 if/then/fi**: android-emulator-runner 将每一行拆成独立 `sh -c` 调用 → 多行 if 块被截断 → `Syntax error: end of file unexpected (expecting "fi")` → exit code 2
+- **修复位置**:
+  1. ui.xml 存在性检查: `[ -f /tmp/ui.xml ] && ... || ...`
+  2. ps 进程存活性检查: `adb shell "ps -A ... | grep -q" && ... || { ...; exit 1; }`
+
+### 踩了什么坑
+- **同一错误出现两次**: v0.1.3 时修过一次多行条件 (commit `4b24002`)，v0.1.4 新增 uiautomator dump 调试代码时又写了多行 if，复现**完全相同**的 CI 崩溃
+- **教训**: android-emulator-runner 的 script 不能再出现任何多行条件语句，必须全部 `&& ||` 单行
+
+### 学到了什么
+- CI 脚本变更后需要检查「有没有多行 if/for/while」——应有自动化检查规则
+- 注释掉的代码块保留多行 if 也危险（YAML 缩进敏感）
+
+### 第二轮修复：变量跨行丢失
+
+**现象**: `Screen: x` → `Tapping FAB at: x` → `input tap` 参数为空 → `IllegalArgumentException: Argument expected after "tap"` → exit 255
+
+**根因**: 同上——每行独立 `sh -c`。`SIZE`/`W`/`H`/`FX`/`FY` 五个变量跨了 8 行，每行都是新 shell，前一行设的变量后一行拿不到。
+
+**修复**: 合并整个 SIZE→W→H→FX→FY→tap 为用 `;` 分隔的单行（commit `1972dbd`）
+
+**最终验证**: CI 全绿 → Screen: 320x640, FAB: 281x563, ✅ PASS

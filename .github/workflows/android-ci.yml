@@ -6,6 +6,7 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -141,26 +142,36 @@ jobs:
             echo "=== Installing APK ==="
             adb install -r app-debug.apk
 
+            echo "=== Granting permissions ==="
+            adb shell pm grant com.livespeaker.app android.permission.RECORD_AUDIO
+            adb shell pm grant com.livespeaker.app android.permission.POST_NOTIFICATIONS
+
             echo "=== Launching app ==="
             adb shell am start -n com.livespeaker.app/.ui.MainActivity
+            sleep 3
+
+            echo "=== Finding '开始录音' button with uiautomator ==="
+            adb shell uiautomator dump /sdcard/ui.xml
+            adb pull /sdcard/ui.xml /tmp/ui.xml 2>/dev/null || true
+
+            # Show the UI hierarchy for debugging
+            [ -f /tmp/ui.xml ] && echo "--- UI dump (first 2000 chars) ---" && head -c 2000 /tmp/ui.xml && echo "" || echo "(no UI dump available)"
+
+            echo "=== Clicking 开始录音 (center-bottom FAB) ==="
+            # 获取屏幕尺寸 → 算 FAB 位置 → tap（必须在同一行，因为每行是独立 sh -c）
+            SIZE=$(adb shell wm size | grep -oP '\d+x\d+'); W=$(echo $SIZE | cut -d'x' -f1); H=$(echo $SIZE | cut -d'x' -f2); echo "Screen: ${W}x${H}"; FX=$((W * 88 / 100)); FY=$((H * 88 / 100)); echo "Tapping FAB at: ${FX}x${FY}"; adb shell input tap $FX $FY
+
+            echo "=== Waiting for Service lifecycle ==="
             sleep 5
 
-            echo "=== Checking if app is running ==="
-            FOCUSED=$(adb shell dumpsys window 2>/dev/null | grep mCurrentFocus || echo "")
-            echo "Current focus: $FOCUSED"
-
-            # Check if our app is in the foreground
-            adb shell dumpsys window 2>/dev/null | grep -q "com.livespeaker.app" && echo "✅ App is running!" || echo "⚠️  App window not detected (may be showing permission dialog)"
-
-            echo "=== App process check ==="
-            adb shell "ps -A 2>/dev/null | grep livespeaker" || echo "(no process found)"
+            echo "=== Verifying app still alive ==="
+            adb shell "ps -A 2>/dev/null | grep -q livespeaker" && echo "✅ PASS — App process still alive after clicking 开始录音" || { echo "❌ FAIL — App process DIED after clicking 开始录音!"; exit 1; }
 
             echo "=== Taking screenshot ==="
             adb exec-out screencap -p > /tmp/screenshot.png
-            echo "Screenshot saved to /tmp/screenshot.png"
 
             echo "=== Logcat (errors only) ==="
-            adb logcat -d -t 200 | grep -i -E "livespeaker|AndroidRuntime|FATAL" || echo "(no relevant errors)"
+            adb logcat -d -t 300 | grep -i -E "livespeaker|AndroidRuntime|FATAL|crash" || echo "(no relevant errors)"
 
       - name: Upload Screenshot
         if: always()

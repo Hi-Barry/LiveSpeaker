@@ -34,43 +34,58 @@ class AudioRecorder(
     /** 当前是否正在录音 */
     val isActive: Boolean get() = isRecording.get()
 
-    /** 启动录音 */
-    fun start() {
-        if (isRecording.getAndSet(true)) return
+    /**
+     * 启动录音。
+     * @return true 表示启动成功，false 表示失败
+     */
+    fun start(): Boolean {
+        if (isRecording.getAndSet(true)) return true  // 已在录音
 
-        val minBufferSize = AudioRecord.getMinBufferSize(
-            SAMPLE_RATE, CHANNEL, ENCODING
-        )
-        val bufferSize = maxOf(minBufferSize, BUFFER_FRAMES * 2)
+        return try {
+            val minBufferSize = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE, CHANNEL, ENCODING
+            )
+            val bufferSize = maxOf(minBufferSize, BUFFER_FRAMES * 2)
 
-        audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            SAMPLE_RATE,
-            CHANNEL,
-            ENCODING,
-            bufferSize
-        ).also {
-            if (it.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(TAG, "AudioRecord 初始化失败")
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                SAMPLE_RATE,
+                CHANNEL,
+                ENCODING,
+                bufferSize
+            )
+
+            if (audioRecord!!.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e(TAG, "AudioRecord 初始化失败 (state=${audioRecord!!.state})")
+                audioRecord!!.release()
+                audioRecord = null
                 isRecording.set(false)
-                throw IllegalStateException("AudioRecord init failed")
+                return false
             }
-            it.startRecording()
-        }
 
-        readJob = scope.launch {
-            val buffer = ShortArray(BUFFER_FRAMES)
-            while (isActive) {
-                val n = audioRecord?.read(buffer, 0, buffer.size) ?: -1
-                if (n > 0) {
-                    ringBuffer.write(buffer, 0, n)
-                } else if (n < 0) {
-                    Log.e(TAG, "AudioRecord read error: $n")
-                    break
+            audioRecord!!.startRecording()
+
+            readJob = scope.launch {
+                val buffer = ShortArray(BUFFER_FRAMES)
+                while (isActive) {
+                    val n = audioRecord?.read(buffer, 0, buffer.size) ?: -1
+                    if (n > 0) {
+                        ringBuffer.write(buffer, 0, n)
+                    } else if (n < 0) {
+                        Log.e(TAG, "AudioRecord read error: $n")
+                        break
+                    }
                 }
             }
+            Log.i(TAG, "录音已启动")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "录音启动失败: ${e.message}", e)
+            isRecording.set(false)
+            try { audioRecord?.release() } catch (_: Exception) {}
+            audioRecord = null
+            false
         }
-        Log.i(TAG, "录音已启动")
     }
 
     /** 停止录音 */
