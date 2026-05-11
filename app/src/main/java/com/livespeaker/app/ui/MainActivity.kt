@@ -113,16 +113,20 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // 悬浮窗权限：不影响核心录音功能，仅跳转设置页
+        // 悬浮窗权限：首次未授权时提示一次，后续不再骚扰
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
             !Settings.canDrawOverlays(this)
         ) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
-            startActivity(intent)
-            Toast.makeText(this, "请开启悬浮窗权限以使用悬浮球", Toast.LENGTH_SHORT).show()
+            val prefs = getSharedPreferences("permissions", MODE_PRIVATE)
+            if (!prefs.getBoolean("overlay_prompted", false)) {
+                prefs.edit().putBoolean("overlay_prompted", true).apply()
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                Toast.makeText(this, "请开启悬浮窗权限以使用悬浮球", Toast.LENGTH_SHORT).show()
+            }
         }
 
         onPermissionsGranted()

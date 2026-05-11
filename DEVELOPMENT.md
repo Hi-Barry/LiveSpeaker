@@ -222,3 +222,16 @@
 ### 学到了什么
 - `remember {}` 在 Compose 中只在首次组合时计算。模型状态变化后需要 `mutableStateOf` 才能触发重组
 - 下载 + 加载链路一次性打通比逐个排查体验好得多：用户点"开始录音" → 看到通知栏进度 → 下载完成自动开始，无需手动操作
+
+---
+> **最后更新**: 2026-05-11 | **维护者**: Hermes Agent + Hi-Barry
+
+## 📅 2026-05-11 — UX 修复：悬浮窗权限去重 + 下载进度可见
+
+### 做了什么
+- **悬浮窗权限去重**: `SharedPreferences("permissions")` 记录 `overlay_prompted`，首次未授权时跳设置页，之后不再骚扰
+- **通知栏下载进度**: `downloadProgress` volatile 变量，`waitForModel()` 轮询时实时更新通知：`正在下载 ASR 模型... 45%` → `正在加载模型...` → 录音开始
+
+### 踩了什么坑
+- **SettingsScreen 编译错误**: `modelManager.MODELS` 通过实例访问 companion object 导致 `Unresolved reference`，改为 `ModelManager.MODELS` 静态访问 + 显式 `List<Boolean>` 类型
+- **下载进度 vs 通知时序**: 下载发生在 `onCreate()`，但 `startForeground()` 在 `onStartCommand()` → 不能在下载回调中直接 `updateNotification()`。解决：`waitForModel()` 轮询 `downloadProgress`

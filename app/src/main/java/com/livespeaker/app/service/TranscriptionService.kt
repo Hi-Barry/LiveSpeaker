@@ -61,6 +61,7 @@ class TranscriptionService : Service() {
     private var processingJob: Job? = null
     private var modelLoadJob: Job? = null
     @Volatile private var modelLoadError: String? = null
+    @Volatile private var downloadProgress: Int = -1  // -1=未开始下载, 0-100=下载中
 
     private val notificationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -101,11 +102,14 @@ class TranscriptionService : Service() {
                     // 模型不存在 → 自动下载
                     if (!asrModel.exists() || !tokensFile.exists()) {
                         Log.i(TAG, "[Init] 模型缺失，开始自动下载 (ASR ~228MB)...")
+                        downloadProgress = 0
                         app.modelManager.downloadModel(
                             ModelManager.MODELS.first { it.dir == "sense-voice" }
                         ) { percent ->
+                            downloadProgress = percent
                             Log.d(TAG, "[Download] SenseVoice: $percent%")
                         }
+                        downloadProgress = -1  // 下载完成，清除标记
                         Log.i(TAG, "[Init] 下载完成，开始加载模型")
                     }
 
@@ -237,13 +241,19 @@ class TranscriptionService : Service() {
         Log.i(TAG, "录音和转写已启动")
     }
 
-    /** 等待模型就绪（最多 30 秒） */
+    /** 等待模型就绪（含下载，最多 2 分钟） */
     private suspend fun waitForModel(): Boolean {
         val startTime = System.currentTimeMillis()
         while (!sherpaEngine.isReady && modelLoadError == null) {
             if (System.currentTimeMillis() - startTime > MODEL_LOAD_TIMEOUT_MS) {
                 modelLoadError = "模型加载超时 (${MODEL_LOAD_TIMEOUT_MS / 1000}s)"
                 return false
+            }
+            // 通知栏显示下载进度
+            if (downloadProgress in 0..100) {
+                updateNotification("正在下载 ASR 模型... $downloadProgress%")
+            } else if (downloadProgress == -1 && !sherpaEngine.isReady) {
+                updateNotification("正在加载模型...")
             }
             delay(200)
         }
