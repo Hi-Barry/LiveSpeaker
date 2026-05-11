@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -95,29 +96,48 @@ fun MainScreen(
             }
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // ── 状态栏 ──
-            StatusBar(
-                recorderState = recorderState,
-                isPlaying = isPlaying,
-                currentDuration = currentDuration,
-                segmentCount = segments.size
-            )
-
-            // ── 文件列表 ──
-            if (segments.isEmpty() && recorderState == AudioRecorder.State.IDLE) {
-                EmptyState()
-            } else {
-                SegmentList(
-                    segments = segments,
-                    playingSegment = playingSegment,
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // ── 状态栏 ──
+                StatusBar(
+                    recorderState = recorderState,
                     isPlaying = isPlaying,
-                    onPlay = { segment -> viewModel.playSegment(segment) },
-                    onStopPlayback = { viewModel.stopPlayback() }
+                    currentDuration = currentDuration,
+                    segmentCount = segments.size
+                )
+
+                // ── 文件列表 ──
+                if (segments.isEmpty() && recorderState == AudioRecorder.State.IDLE) {
+                    EmptyState()
+                } else {
+                    SegmentList(
+                        segments = segments,
+                        playingSegment = playingSegment,
+                        isPlaying = isPlaying,
+                        onPlay = { segment -> viewModel.playSegment(segment) },
+                        onStopPlayback = { viewModel.stopPlayback() }
+                    )
+                }
+            }
+
+            // ── 底部进度条（2dp，播放时显示）──
+            AnimatedVisibility(
+                visible = isPlaying,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                val position by viewModel.playbackPosition.collectAsState()
+                val duration by viewModel.playbackDuration.collectAsState()
+                val progress = if (duration > 0) position.toFloat() / duration.toFloat() else 0f
+
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = Color.Transparent,
                 )
             }
         }

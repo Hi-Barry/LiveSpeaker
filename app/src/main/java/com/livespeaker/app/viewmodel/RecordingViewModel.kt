@@ -12,11 +12,13 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.livespeaker.app.audio.AudioRecorder
 import com.livespeaker.app.audio.AudioRecorder.Segment
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import java.io.File
 
 /**
@@ -62,6 +64,11 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
     val currentSegmentDuration = recorder.currentDuration
 
     val playingSegment = MutableStateFlow<Segment?>(null)
+
+    val playbackPosition = MutableStateFlow(0L)
+    val playbackDuration = MutableStateFlow(1L)
+
+    private var progressJob: kotlinx.coroutines.Job? = null
 
     // 是否因为播放而自动暂停了录音
     private var wasRecordingBeforePlayback = false
@@ -134,10 +141,14 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun stopPlayback() {
+        progressJob?.cancel()
+        progressJob = null
         player?.stop()
         player?.clearMediaItems()
         isPlaying.value = false
         playingSegment.value = null
+        playbackPosition.value = 0L
+        playbackDuration.value = 1L
         if (wasRecordingBeforePlayback && recorder.state.value == AudioRecorder.State.PAUSED) {
             wasRecordingBeforePlayback = false
             recorder.resume()
@@ -173,6 +184,21 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
 
         isPlaying.value = true
         playingSegment.value = segment
+
+        // 启动进度轮询
+        progressJob?.cancel()
+        progressJob = viewModelScope.launch(Dispatchers.Main) {
+            while (isActive && isPlaying.value) {
+                val p = player
+                if (p != null) {
+                    playbackPosition.value = p.currentPosition
+                    playbackDuration.value = p.duration.takeIf { it > 0 } ?: 1L
+                }
+                delay(100)
+            }
+            playbackPosition.value = 0L
+            playbackDuration.value = 1L
+        }
     }
 
     override fun onCleared() {
