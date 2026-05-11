@@ -58,6 +58,7 @@ fun MainScreen(
     }
 
     Scaffold(
+        floatingActionButtonPosition = FabPosition.Center,
         topBar = {
             TopAppBar(
                 title = {
@@ -275,7 +276,7 @@ private fun SegmentList(
         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
 
         LazyColumn(
-            contentPadding = PaddingValues(vertical = 4.dp)
+            contentPadding = PaddingValues(vertical = 4.dp, bottom = 72.dp)
         ) {
             items(segments) { segment ->
                 SegmentItem(

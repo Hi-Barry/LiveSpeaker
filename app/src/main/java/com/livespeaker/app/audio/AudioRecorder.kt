@@ -52,6 +52,10 @@ class AudioRecorder(private val outputDir: File) {
     private val _segments = MutableStateFlow<List<Segment>>(emptyList())
     val segments: StateFlow<List<Segment>> = _segments
 
+    init {
+        loadExistingSegments()
+    }
+
     /**
      * 开始录音。自动创建第一个片段。
      * 历史录音文件会被加载到列表中，不会被清除。
