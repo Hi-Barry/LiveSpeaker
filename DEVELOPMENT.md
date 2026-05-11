@@ -193,3 +193,13 @@
 ### 学到了什么
 - CI 脚本变更后需要检查「有没有多行 if/for/while」——应有自动化检查规则
 - 注释掉的代码块保留多行 if 也危险（YAML 缩进敏感）
+
+### 第二轮修复：变量跨行丢失
+
+**现象**: `Screen: x` → `Tapping FAB at: x` → `input tap` 参数为空 → `IllegalArgumentException: Argument expected after "tap"` → exit 255
+
+**根因**: 同上——每行独立 `sh -c`。`SIZE`/`W`/`H`/`FX`/`FY` 五个变量跨了 8 行，每行都是新 shell，前一行设的变量后一行拿不到。
+
+**修复**: 合并整个 SIZE→W→H→FX→FY→tap 为用 `;` 分隔的单行（commit `1972dbd`）
+
+**最终验证**: CI 全绿 → Screen: 320x640, FAB: 281x563, ✅ PASS
