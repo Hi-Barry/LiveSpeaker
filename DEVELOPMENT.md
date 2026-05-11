@@ -5,6 +5,32 @@
 
 ---
 
+## 📅 2026-05-11 (傍晚) — v0.2.6 设置界面 + 可配置切片时间
+
+### 做了什么
+
+添加设置界面，用户可选择录音切片时间（1/2/5/10 分钟）。
+
+### 🏗 架构决策
+
+| 决策 | 实现 | 理由 |
+|------|------|------|
+| 存储 | SharedPreferences (SettingsManager 单例) | 零额外依赖，够用 |
+| UI | Material3 ModalBottomSheet | 原生支持，无需 Navigation 库 |
+| 生效时机 | 下次 startNewSegment() 读取新值 | 不中断当前录音 |
+| 选项 | 1/2/5/10 分钟 RadioButton | 覆盖常用场景 |
+
+### 改动量
+
+- `SettingsManager.kt` (新建 ~30 行) — SharedPreferences 封装
+- `SettingsSheet.kt` (新建 ~150 行) — BottomSheet + RadioButton
+- `AudioRecorder.kt` (改 3 行) — 删除硬编码 SEGMENT_DURATION_MS，改用 SettingsManager
+- `LiveSpeakerApp.kt` (+1 行) — init SettingsManager
+- `MainScreen.kt` (+15 行) — TopAppBar 加 ⚙️ 按钮
+- `MainActivity.kt` (重写 ~15 行) — showSettings 状态 + SettingsSheet 条件渲染
+
+---
+
 ## 📅 2026-05-11 (下午) — v0.2.5 后台录音支持
 
 ### 做了什么

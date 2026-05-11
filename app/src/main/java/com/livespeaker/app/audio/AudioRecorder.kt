@@ -1,6 +1,7 @@
 package com.livespeaker.app.audio
 
 import android.media.MediaMetadataRetriever
+import com.livespeaker.app.SettingsManager
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
@@ -25,7 +26,6 @@ class AudioRecorder(private val outputDir: File) {
 
     companion object {
         private const val TAG = "AudioRecorder"
-        const val SEGMENT_DURATION_MS = 60_000L // 1 分钟
         private val DATE_FMT = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
     }
 
@@ -194,7 +194,7 @@ class AudioRecorder(private val outputDir: File) {
             setAudioSamplingRate(16000)
             setAudioEncodingBitRate(64000)
             setOutputFile(file.absolutePath)
-            setMaxDuration(SEGMENT_DURATION_MS.toInt())
+            setMaxDuration(SettingsManager.segmentDurationMs.toInt())
 
             setOnInfoListener { mr, what, _ ->
                 when (what) {
@@ -234,7 +234,7 @@ class AudioRecorder(private val outputDir: File) {
         mediaRecorder = null
 
         // 记录已完成的片段（用文件写入完成后的真实时长和完成时间）
-        val duration = if (file.exists()) getAudioDuration(file) else SEGMENT_DURATION_MS
+        val duration = if (file.exists()) getAudioDuration(file) else SettingsManager.segmentDurationMs
         val segment = Segment(
             file = file,
             index = currentSegmentIndex,

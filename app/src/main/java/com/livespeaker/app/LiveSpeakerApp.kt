@@ -10,6 +10,7 @@ class LiveSpeakerApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        SettingsManager.init(this)
         createNotificationChannel()
     }
 

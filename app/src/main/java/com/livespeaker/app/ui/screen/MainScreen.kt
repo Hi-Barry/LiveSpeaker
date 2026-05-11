@@ -40,7 +40,8 @@ import java.util.*
 @Composable
 fun MainScreen(
     viewModel: RecordingViewModel,
-    onFabClick: () -> Unit
+    onFabClick: () -> Unit,
+    onSettingsClick: () -> Unit = {}
 ) {
     val segments by viewModel.segments.collectAsState()
     val isRecording by viewModel.isRecording.collectAsState()
@@ -69,6 +70,15 @@ fun MainScreen(
                             text = "v2",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "设置",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
@@ -227,13 +237,13 @@ private fun EmptyState() {
             )
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "点击右下角按钮开始录音",
+                text = "点击右下角按钮即可开始录音",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "每 1 分钟自动切割为独立片段",
+                text = "可在设置中调整切割时长",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )

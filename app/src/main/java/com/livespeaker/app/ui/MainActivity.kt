@@ -10,8 +10,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.livespeaker.app.ui.screen.MainScreen
+import com.livespeaker.app.ui.screen.SettingsSheet
 import com.livespeaker.app.ui.theme.*
 import com.livespeaker.app.viewmodel.RecordingViewModel
 
@@ -48,6 +53,8 @@ class MainActivity : ComponentActivity() {
                     onSurfaceVariant = TextSecondary,
                 )
             ) {
+                var showSettings by remember { mutableStateOf(false) }
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -64,8 +71,13 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                             }
-                        }
+                        },
+                        onSettingsClick = { showSettings = true }
                     )
+                }
+
+                if (showSettings) {
+                    SettingsSheet(onDismiss = { showSettings = false })
                 }
             }
         }
