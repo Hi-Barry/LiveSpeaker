@@ -5,6 +5,61 @@
 
 ---
 
+## 📅 2026-05-11 — v2 全面重构：纯录音切割
+
+### 事件
+
+推翻 v1 的 sherpa-onnx 实时转写架构，重建为纯录音 + 1 分钟自动切割 + 回放。
+
+### 🏗 架构决策
+
+| 决策 | v1（旧） | v2（新） | 理由 |
+|------|---------|---------|------|
+| 录音引擎 | AudioRecord + RingBuffer | MediaRecorder | 直接输出文件，setMaxDuration 原生切割 |
+| AI 模型 | sherpa-onnx 228MB | **移除** | 暂不需要转写 |
+| 状态管理 | Service + EventBus | ViewModel + StateFlow | 不需要后台运行 |
+| 权限 | 5 个（录音/通知/悬浮窗/网络/WakeLock） | 1 个（RECORD_AUDIO） | 极简 |
+| 播放 | 无 | ExoPlayer (Media3) | 原生音频播放 |
+| APK 体积 | ~300MB | ~5MB | 移除所有 ONNX 模型 |
+
+### 做了什么
+
+1. **删除 16 个旧文件**：TranscriptionService、SherpaEngine、ModelManager、VadProcessor、RingBuffer、ClusterEngine、VectorUtils、SpeakerProfile、SpeakerRepository、SpeakerDao、AppDatabase、BubbleService、SettingsScreen、SpeakerScreen、TranscriptionScreen、RecordingState
+2. **重写 AudioRecorder**：MediaRecorder 替代 AudioRecord，setMaxDuration(60000) 自动切割，文件命名 `recording_20260511_132045_1.m4a`
+3. **新建 RecordingViewModel**：状态机管理录音/暂停/回放，ExoPlayer 播放，播放时自动暂停录音，播放结束自动恢复
+4. **新建 MainScreen**：状态栏 + 片段列表（右侧播放按钮）+ FAB。播放中高亮当前片段
+5. **精简依赖**：移除 sherpa-onnx、Room、KSP 插件、JitPack 仓库，添加 Media3 ExoPlayer + lifecycle-viewmodel-compose
+6. **版本号**：versionCode 1→2, versionName 1.0.0→0.2.0
+
+### 踩了什么坑
+
+- **本地无 JDK**：Hermes Agent 环境无 Java，无法本地编译。CI 环境有完整 Android SDK，依赖 GitHub Actions 编译验证
+
+### 学到了什么
+
+- MediaRecorder 的 pause/resume 在 API 26+ 原生支持，minSdk=26 刚好能用
+- 60 秒切割通过 setMaxDuration + setOnInfoListener(MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) 实现
+- 播放时暂停录音的策略：ViewModel 维护 `wasRecordingBeforePlayback` 标志，播放结束后自动恢复
+- Media3 ExoPlayer 比原生 MediaPlayer 更可靠，支持更现代的 API
+
+### ⚠️ 已知不足
+
+1. **切割间隙**：MediaRecorder stop→start 有 ~200-500ms 音频丢失
+2. **无后台录音**：Activity 退出后录音停止（后续可考虑前台服务）
+3. **无删除功能**：片段只能播放，不能删除
+4. **播放进度不可见**：只显示播放/暂停状态，无进度条
+
+### 🔮 下一步计划
+
+- [ ] 删除功能
+- [ ] 播放进度条
+- [ ] 波形显示
+- [ ] 后台录音（前台服务）
+- [ ] 文件分享/导出
+- [ ] 重新集成 sherpa-onnx ASR（作为后续功能逐步加入）
+
+---
+
 ## 📅 2026-05-09 — 项目初始化 + CI 上线
 
 ### 事件
