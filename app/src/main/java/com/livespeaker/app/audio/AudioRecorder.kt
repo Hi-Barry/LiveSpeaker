@@ -1,6 +1,5 @@
 package com.livespeaker.app.audio
 
-import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.media.MediaRecorder
 import android.os.Handler
@@ -43,6 +42,7 @@ class AudioRecorder(private val outputDir: File) {
     private var currentSegmentIndex = 0
     private var currentFile: File? = null
     private var sessionStartTime: Long = 0L
+    private var segmentStartMs: Long = 0L
 
     private val handler = Handler(Looper.getMainLooper())
     private var durationRunnable: Runnable? = null
@@ -177,13 +177,15 @@ class AudioRecorder(private val outputDir: File) {
     }
 
     private fun startNewSegment() {
-        val timestamp = System.currentTimeMillis()
-        val datePart = DATE_FMT.format(Date(timestamp))
+        val now = System.currentTimeMillis()
+        val datePart = DATE_FMT.format(Date(now))
         currentSegmentIndex++
         val file = File(outputDir, "recording_${datePart}_$currentSegmentIndex.m4a")
 
         // 确保目录存在
         outputDir.mkdirs()
+
+        segmentStartMs = now
 
         mediaRecorder = MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
@@ -198,7 +200,7 @@ class AudioRecorder(private val outputDir: File) {
                 when (what) {
                     MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED -> {
                         Log.i(TAG, "片段 #$currentSegmentIndex 达到最大时长，自动切割")
-                        onSegmentComplete(file, timestamp)
+                        onSegmentComplete(file)
                     }
                 }
             }
@@ -218,7 +220,9 @@ class AudioRecorder(private val outputDir: File) {
         Log.i(TAG, "新片段 #$currentSegmentIndex → ${file.name}")
     }
 
-    private fun onSegmentComplete(file: File, timestamp: Long) {
+    private fun onSegmentComplete(file: File) {
+        val now = System.currentTimeMillis()
+
         // 停止当前片段
         stopDurationTimer()
         try {
@@ -229,20 +233,26 @@ class AudioRecorder(private val outputDir: File) {
         } catch (_: Exception) {}
         mediaRecorder = null
 
-        // 记录已完成的片段
-        // 等文件写入完成后再获取时长（MediaRecorder.stop() 会 finalize 文件）
+        // 记录已完成的片段（用文件写入完成后的真实时长和完成时间）
         val duration = if (file.exists()) getAudioDuration(file) else SEGMENT_DURATION_MS
         val segment = Segment(
             file = file,
             index = currentSegmentIndex,
             durationMs = duration,
-            timestamp = timestamp
+            timestamp = now
         )
         _segments.value = _segments.value + segment
 
         // 如果用户没有手动停止，自动开始下一个片段
         if (state.value == State.RECORDING) {
-            handler.postDelayed({ startNewSegment() }, 100) // 短暂延迟防竞态
+            handler.postDelayed({
+                try {
+                    startNewSegment()
+                } catch (e: Exception) {
+                    Log.e(TAG, "自动切割失败: ${e.message}", e)
+                    state.value = State.IDLE
+                }
+            }, 100) // 短暂延迟防竞态
         }
     }
 
