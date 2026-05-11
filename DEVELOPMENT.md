@@ -5,6 +5,36 @@
 
 ---
 
+## 📅 2026-05-11 (下午) — v0.2.5 后台录音支持
+
+### 做了什么
+
+添加前台 Service，解决切后台后录音被系统杀死的问题。
+
+### 🏗 架构决策
+
+| 决策 | 实现 | 理由 |
+|------|------|------|
+| Service 职责 | 仅 startForeground()，不做录音 | 录音逻辑不动，零风险 |
+| 时机 | startRecording() 启动 Service，stopRecording() 停止 | 暂停回放时 Service 保持 |
+| 通知 | "LiveSpeaker / 录音中…" + 麦克风图标 | IMPORTANCE_LOW 不打扰 |
+
+### 改动量
+
+- `RecordingService.kt` (新建 ~43 行)
+- `AndroidManifest.xml` (+4 权限 + Service 声明)
+- `LiveSpeakerApp.kt` (+通知渠道创建)
+- `RecordingViewModel.kt` (+10 行 启动/停止 Service)
+- `res/drawable/ic_mic.xml` (新建 通知图标)
+
+AudioRecorder.kt 一行未动。
+
+### 坑
+
+- `PendingIntent.getActivity()` 需用 `Class.forName()` 引用 Activity，避免循环依赖（Service 在 audio 包，Activity 在 ui 包）
+
+---
+
 ## 📅 2026-05-11 — v2 全面重构：纯录音切割
 
 ### 事件

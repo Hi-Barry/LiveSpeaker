@@ -1,6 +1,7 @@
 package com.livespeaker.app.viewmodel
 
 import android.app.Application
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.Manifest
 import androidx.core.content.ContextCompat
@@ -11,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.livespeaker.app.audio.AudioRecorder
 import com.livespeaker.app.audio.AudioRecorder.Segment
+import com.livespeaker.app.audio.RecordingService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -90,6 +92,11 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
         if (isPlaying.value) {
             stopPlayback()
         }
+        // 启动前台 Service，保证切后台进程不被杀
+        val ctx = getApplication<Application>()
+        ctx.startForegroundService(
+            Intent(ctx, RecordingService::class.java)
+        )
         viewModelScope.launch(Dispatchers.IO) {
             recorder.start()
         }
@@ -104,6 +111,9 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
                 recorder.stop()
             }
         }
+        // 停止前台 Service
+        val ctx = getApplication<Application>()
+        ctx.stopService(Intent(ctx, RecordingService::class.java))
     }
 
     fun pauseRecording() {
