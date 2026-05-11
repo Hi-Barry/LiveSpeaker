@@ -16,6 +16,7 @@ import com.livespeaker.app.audio.AudioRecorder
 import com.livespeaker.app.audio.RingBuffer
 import com.livespeaker.app.diarization.ClusterEngine
 import com.livespeaker.app.diarization.ClusterResult
+import com.livespeaker.app.pipeline.ModelManager
 import com.livespeaker.app.pipeline.SherpaEngine
 import com.livespeaker.app.pipeline.VadProcessor
 import com.livespeaker.app.data.SpeakerRepository
@@ -31,7 +32,7 @@ class TranscriptionService : Service() {
     companion object {
         private const val TAG = "TranscriptionService"
         private const val MIN_SEGMENT_SAMPLES = 8000
-        private const val MODEL_LOAD_TIMEOUT_MS = 30_000L
+        private const val MODEL_LOAD_TIMEOUT_MS = 120_000L  // 2min — 含下载 228MB 模型时间
 
         /** 模型加载错误广播，UI 层接收后显示错误提示 */
         const val ACTION_MODEL_ERROR = "com.livespeaker.app.ACTION_MODEL_ERROR"
@@ -97,6 +98,18 @@ class TranscriptionService : Service() {
 
             modelLoadJob = serviceScope.launch {
                 try {
+                    // 模型不存在 → 自动下载
+                    if (!asrModel.exists() || !tokensFile.exists()) {
+                        Log.i(TAG, "[Init] 模型缺失，开始自动下载 (ASR ~228MB)...")
+                        app.modelManager.downloadModel(
+                            ModelManager.MODELS.first { it.dir == "sense-voice" }
+                        ) { percent ->
+                            Log.d(TAG, "[Download] SenseVoice: $percent%")
+                        }
+                        Log.i(TAG, "[Init] 下载完成，开始加载模型")
+                    }
+
+                    // 加载模型
                     if (asrModel.exists() && tokensFile.exists()) {
                         val ok = sherpaEngine.initAsr(asrModel.absolutePath, tokensFile.absolutePath)
                         if (ok) {
@@ -107,12 +120,12 @@ class TranscriptionService : Service() {
                             Log.e(TAG, "[Init] $modelLoadError")
                         }
                     } else {
-                        modelLoadError = "模型文件未下载 (${asrModel.name})"
-                        Log.w(TAG, "[Init] $modelLoadError — 路径: ${asrModel.absolutePath}")
+                        modelLoadError = "模型下载后文件仍然缺失"
+                        Log.e(TAG, "[Init] $modelLoadError")
                     }
                 } catch (e: Exception) {
-                    modelLoadError = "模型加载异常: ${e.message}"
-                    Log.e(TAG, "[Init] 模型加载崩溃", e)
+                    modelLoadError = "模型下载/加载失败: ${e.message}"
+                    Log.e(TAG, "[Init] 模型准备失败", e)
                     writeCrashLog(e)
                 }
                 Log.i(TAG, "[Init] SherpaEngine.isReady: ${sherpaEngine.isReady}")

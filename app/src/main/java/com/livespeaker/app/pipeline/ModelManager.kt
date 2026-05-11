@@ -21,24 +21,31 @@ class ModelManager(private val context: Context) {
         private const val TAG = "ModelManager"
         private const val MODELS_DIR = "models"
 
-        // 模型下载 URL (GitHub Releases)
-        private const val BASE_URL =
-            "https://github.com/k2-fsa/sherpa-onnx/releases/download"
+        // 模型下载 URL 列表（按优先级：主源 → 国内镜像）
+        private val MIRROR_PREFIXES = listOf(
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download",
+            "https://ghproxy.net/https://github.com/k2-fsa/sherpa-onnx/releases/download",
+            "https://mirror.ghproxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download"
+        )
 
         // 模型文件定义
         data class ModelInfo(
             val name: String,
             val dir: String,
-            val archiveUrl: String,
+            val archivePath: String,       // 相对路径，不含前缀
             val archiveName: String,
             val requiredFiles: List<String>
-        )
+        ) {
+            /** 生成所有镜像的完整 URL */
+            fun mirrorUrls(): List<String> =
+                MIRROR_PREFIXES.map { "$it/$archivePath" }
+        }
 
         val MODELS = listOf(
             ModelInfo(
                 name = "SenseVoice ASR (int8)",
                 dir = "sense-voice",
-                archiveUrl = "$BASE_URL/asr-models/" +
+                archivePath = "asr-models/" +
                     "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
                 archiveName = "sense-voice.tar.bz2",
                 requiredFiles = listOf("model.int8.onnx", "tokens.txt")
@@ -46,7 +53,7 @@ class ModelManager(private val context: Context) {
             ModelInfo(
                 name = "3D-Speaker ERes2Net",
                 dir = "speaker",
-                archiveUrl = "$BASE_URL/speaker-recongition-models/" +
+                archivePath = "speaker-recongition-models/" +
                     "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
                 archiveName = "eres2net.onnx",
                 requiredFiles = listOf("eres2net.onnx")
@@ -54,7 +61,7 @@ class ModelManager(private val context: Context) {
             ModelInfo(
                 name = "GTCRN Denoiser",
                 dir = "denoiser",
-                archiveUrl = "$BASE_URL/speech-enhancement-models/" +
+                archivePath = "speech-enhancement-models/" +
                     "sherpa-onnx-gtcrn-denoise-2024-07-09.tar.bz2",
                 archiveName = "gtcrn.tar.bz2",
                 requiredFiles = listOf("gtcrn_simple.onnx")
@@ -62,7 +69,7 @@ class ModelManager(private val context: Context) {
             ModelInfo(
                 name = "Silero VAD",
                 dir = "vad",
-                archiveUrl = "$BASE_URL/asr-models/silero_vad.onnx",
+                archivePath = "asr-models/silero_vad.onnx",
                 archiveName = "silero_vad.onnx",
                 requiredFiles = listOf("silero_vad.onnx")
             )
@@ -97,14 +104,29 @@ class ModelManager(private val context: Context) {
         outDir.mkdirs()
 
         val archiveFile = File(context.cacheDir, info.archiveName)
+        val urls = info.mirrorUrls()
+
+        var lastError: Exception? = null
+        for ((i, url) in urls.withIndex()) {
+            val mirrorLabel = if (i == 0) "主源" else "镜像${i}"
+            try {
+                Log.i(TAG, "下载 ${info.name} ($mirrorLabel): $url")
+                downloadFile(url, archiveFile) { percent ->
+                    withContext(Dispatchers.Main) { onProgress(percent) }
+                }
+                // 下载成功，跳出循环
+                lastError = null
+                break
+            } catch (e: Exception) {
+                Log.w(TAG, "下载失败 ($mirrorLabel): ${e.message}")
+                lastError = e
+                archiveFile.delete()  // 清理损坏的临时文件
+            }
+        }
+
+        if (lastError != null) throw lastError
 
         try {
-            // 下载
-            Log.i(TAG, "下载 ${info.name}: ${info.archiveUrl}")
-            downloadFile(info.archiveUrl, archiveFile) { percent ->
-                withContext(Dispatchers.Main) { onProgress(percent) }
-            }
-
             // 解压
             if (info.archiveName.endsWith(".tar.bz2") ||
                 info.archiveName.endsWith(".tar.gz") ||
@@ -131,8 +153,8 @@ class ModelManager(private val context: Context) {
     ) {
         val url = URL(urlString)
         val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 30000
-        conn.readTimeout = 30000
+        conn.connectTimeout = 15000
+        conn.readTimeout = 15000
 
         // 处理重定向
         conn.instanceFollowRedirects = true

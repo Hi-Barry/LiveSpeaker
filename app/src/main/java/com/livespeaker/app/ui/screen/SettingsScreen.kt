@@ -5,8 +5,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.livespeaker.app.LiveSpeakerApp
 
 /**
  * 设置页面。
@@ -20,6 +23,11 @@ fun SettingsScreen(
         mutableFloatStateOf(0.65f)
     }
     var showGtcrnInfo by remember { mutableStateOf(false) }
+
+    val modelManager = remember { LiveSpeakerApp.instance.modelManager }
+    val modelStatuses = remember {
+        modelManager.MODELS.map { modelManager.isModelReady(it) }
+    }
 
     Scaffold(
         topBar = {
@@ -118,10 +126,10 @@ fun SettingsScreen(
             Spacer(Modifier.height(8.dp))
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    ModelInfoRow("ASR", "SenseVoice (int8)", "228MB")
-                    ModelInfoRow("说话人嵌入", "3D-Speaker ERes2Net", "~40MB")
-                    ModelInfoRow("降噪", "GTCRN", "~500KB")
-                    ModelInfoRow("VAD", "Silero VAD", "~1.8MB")
+                    ModelStatusRow("ASR", "SenseVoice (int8)", "228MB", modelStatuses[0])
+                    ModelStatusRow("说话人嵌入", "3D-Speaker ERes2Net", "~40MB", modelStatuses[1])
+                    ModelStatusRow("降噪", "GTCRN", "~500KB", modelStatuses[2])
+                    ModelStatusRow("VAD", "Silero VAD", "~1.8MB", modelStatuses[3])
                     Spacer(Modifier.height(4.dp))
                     Text(
                         text = "总计: ~270MB",
@@ -135,21 +143,30 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun ModelInfoRow(label: String, model: String, size: String) {
+private fun ModelStatusRow(label: String, model: String, size: String, isReady: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = "$model ($size)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Text(
-            text = "$model ($size)",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            text = if (isReady) "✓" else "✗",
+            color = if (isReady) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.titleMedium
         )
     }
 }

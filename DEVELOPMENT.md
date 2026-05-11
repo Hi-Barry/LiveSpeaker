@@ -203,3 +203,22 @@
 **修复**: 合并整个 SIZE→W→H→FX→FY→tap 为用 `;` 分隔的单行（commit `1972dbd`）
 
 **最终验证**: CI 全绿 → Screen: 320x640, FAB: 281x563, ✅ PASS
+
+---
+> **最后更新**: 2026-05-11 | **维护者**: Hermes Agent + Hi-Barry
+
+## 📅 2026-05-11 — 模型自动下载 + 国内镜像
+
+### 做了什么
+- **ModelManager 镜像 fallback**: `archiveUrl` 改为 `archivePath` + `mirrorUrls()`，下载时依次尝试：主源 (GitHub) → ghproxy.net → mirror.ghproxy.com
+- **TranscriptionService 自动下载**: 模型不存在时 → 调用 `modelManager.downloadModel()` → 下载完再加载；全程异步不阻塞主线程
+- **超时提升**: `MODEL_LOAD_TIMEOUT_MS` 30s → 120s（228MB 下载 + 加载需要较长时间）
+- **Settings 模型状态**: 每行右侧显示 ✓（已下载）或 ✗（缺失），数据来源 `ModelManager.isModelReady()`
+
+### 踩了什么坑
+- **ModelManager 实现了但从未被调用**: `downloadModel()` 和 `areAllModelsReady()` 写了完整的下载/验证逻辑，但 `TranscriptionService` 只是检查文件存在 → 没有 → 报错停止。缺失的链路：模型不存在时应该触发下载
+- **GitHub Releases 国内不可达**: 添加 ghproxy 镜像作为 fallback，下载时每位 mirror 单独 try-catch，all fail 才报错
+
+### 学到了什么
+- `remember {}` 在 Compose 中只在首次组合时计算。模型状态变化后需要 `mutableStateOf` 才能触发重组
+- 下载 + 加载链路一次性打通比逐个排查体验好得多：用户点"开始录音" → 看到通知栏进度 → 下载完成自动开始，无需手动操作
