@@ -49,9 +49,9 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
         .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), false)
 
     val isPaused: StateFlow<Boolean> = recorder.state
-        .let { flow ->
+        .let { stateFlow ->
             kotlinx.coroutines.flow.flow {
-                flow.collect { emit(it == AudioRecorder.State.PAUSED) }
+                stateFlow.collect { emit(it == AudioRecorder.State.PAUSED) }
             }
         }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), false)
 
@@ -118,25 +118,18 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun playSegment(segment: Segment) {
         if (isPlaying.value && playingSegment.value == segment) {
-            // 点击正在播放的项 → 停止播放
             stopPlayback()
             return
         }
-
-        // 如果正在播放其他 → 先停
         if (isPlaying.value) {
             stopPlayback()
         }
-
-        // 如果正在录音 → 暂停录音（记住是自动暂停）
         if (recorder.state.value == AudioRecorder.State.RECORDING) {
             wasRecordingBeforePlayback = true
             recorder.pause()
         } else {
             wasRecordingBeforePlayback = false
         }
-
-        // 开始播放
         startPlaying(segment)
     }
 
@@ -145,8 +138,6 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
         player?.clearMediaItems()
         isPlaying.value = false
         playingSegment.value = null
-
-        // 如果之前因为播放暂停了录音 → 恢复
         if (wasRecordingBeforePlayback && recorder.state.value == AudioRecorder.State.PAUSED) {
             wasRecordingBeforePlayback = false
             recorder.resume()
@@ -157,22 +148,20 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
         val ctx = getApplication<Application>()
 
         if (player == null) {
-            player = ExoPlayer.Builder(ctx).build().apply {
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_ENDED) {
-                            // 播放结束 → 恢复录音
-                            stopPlayback()
-                        }
-                    }
-
-                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                        isPlaying.value = false
-                        playingSegment.value = null
+            player = ExoPlayer.Builder(ctx).build()
+            player!!.addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_ENDED) {
                         stopPlayback()
                     }
-                })
-            }
+                }
+
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    this@RecordingViewModel.isPlaying.value = false
+                    this@RecordingViewModel.playingSegment.value = null
+                    stopPlayback()
+                }
+            })
         }
 
         val mediaItem = MediaItem.fromUri(segment.file.toURI().toString())
