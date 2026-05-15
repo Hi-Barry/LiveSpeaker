@@ -1,9 +1,7 @@
 package com.livespeaker.app.ui
 
 import android.Manifest
-import android.os.Build
 import android.os.Bundle
-import android.view.WindowInsetsController
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -42,25 +40,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // ── 状态栏适配深色主题 ──
-        // 状态栏背景色设为深色（与 App 背景一致）
-        window.statusBarColor = android.graphics.Color.parseColor("#FF121212")
-        // 导航栏背景色
-        window.navigationBarColor = android.graphics.Color.parseColor("#FF121212")
-        // 强制浅色图标（白色图标，适配深色背景）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.setSystemBarsAppearance(
-                0,
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
-                WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = (
-                window.decorView.systemUiVisibility
-                    and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-                    and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
-            )
-        }
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (
+            window.decorView.systemUiVisibility
+                and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+        )
 
         setContent {
             // 收集所有流状态
