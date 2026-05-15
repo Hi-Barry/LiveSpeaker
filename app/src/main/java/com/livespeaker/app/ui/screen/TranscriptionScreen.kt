@@ -35,7 +35,7 @@ fun TranscriptionScreen(
     onPlaySegment: (String) -> Unit,
     onRetryItem: (String) -> Unit,
     recorderOutputDir: File
-)
+) {
     Column(modifier = Modifier.fillMaxSize()) {
         // ── 标题栏 ──
         Row(
