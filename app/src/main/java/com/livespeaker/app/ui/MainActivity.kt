@@ -107,7 +107,8 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (showSettings) {
-                    SettingsSheet(onDismiss = { showSettings = false })
+                    val config = SttConfig(this)
+                    SettingsSheet(sttConfig = config, onDismiss = { showSettings = false })
                 }
             }
         }
