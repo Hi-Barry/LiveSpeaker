@@ -3,6 +3,7 @@ package com.livespeaker.app
 import android.Manifest
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
@@ -12,14 +13,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * 录音启动崩溃测试。
+ * 录音启动崩溃测试 + STT 导航测试。
  *
- * 模拟用户点击「开始录音」按钮，验证 App 不会闪退。
- * 这是 CI 中最关键的回归测试 — 如果将来有人改了 Service 初始化逻辑导致崩溃，
- * 这个测试会直接失败。
- *
- * 注意：模拟器无麦克风/模型文件，Service 会因模型未下载而优雅停止。
- * 测试只验证「不崩溃」——即点击后进程仍存活。
+ * 验证：
+ * 1. 点击录音按钮不会闪退
+ * 2. 底部导航栏两个 Tab 可以切换
+ * 3. "转写" Tab 默认显示空状态
  */
 @RunWith(AndroidJUnit4::class)
 class RecordingCrashTest {
@@ -46,12 +45,10 @@ class RecordingCrashTest {
             .onNodeWithContentDescription("开始录音")
             .performClick()
 
-        // 步骤 3: 等待 Service 完整生命周期
-        // （异步模型加载 → startForeground → 模型缺失 → stopSelf）
+        // 步骤 3: 等待录音启动
         Thread.sleep(5000)
 
         // 步骤 4: 如果 App 崩溃了，以下断言会因 Compose 连接断开而失败
-        // isRecording=true 后 contentDescription 变为「停止录音」
         composeTestRule
             .onNodeWithContentDescription("停止录音")
             .assertExists()
@@ -83,6 +80,37 @@ class RecordingCrashTest {
         // 进程仍存活
         composeTestRule
             .onNodeWithContentDescription("停止录音")
+            .assertExists()
+    }
+
+    @Test
+    fun navigateToTranscriptionsTab_showsEmptyState() {
+        // 切换到「转写」Tab
+        composeTestRule
+            .onNodeWithText("转写")
+            .performClick()
+
+        // 验证空状态显示
+        composeTestRule
+            .onNodeWithText("暂无转写记录")
+            .assertExists()
+    }
+
+    @Test
+    fun navigateBackToRecordTab_showsFab() {
+        // 先切到转写
+        composeTestRule
+            .onNodeWithText("转写")
+            .performClick()
+
+        // 再切回录音
+        composeTestRule
+            .onNodeWithText("录音")
+            .performClick()
+
+        // FAB 应该存在
+        composeTestRule
+            .onNodeWithContentDescription("开始录音")
             .assertExists()
     }
 }

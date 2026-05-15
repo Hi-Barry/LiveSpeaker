@@ -5,6 +5,59 @@
 
 ---
 
+## 📅 2026-05-15 — v3 STT 语音转文字集成
+
+### 事件
+
+在 v2 纯录音架构基础上，添加云端语音转文字功能，支持 SiliconFlow / OpenAI 兼容 API。
+
+### 🏗 架构决策
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| STT 方式 | 云端 API (SiliconFlow) | 不增加 APK 体积，利用已有云端算力 |
+| HTTP 客户端 | OkHttp | Android 标准，无额外重量级依赖 |
+| 存储格式 | JSON sidecar（与音频同名） | 极简，无需 Room 数据库 |
+| 设置存储 | DataStore Preferences | 现代异步 API，替代 SharedPreferences |
+| 导航 | Navigation Compose + 底部 Tab | 2 个 Tab（录音/转写）+ 设置页 |
+| 序列化 | kotlinx.serialization | 轻量，编译期类型安全 |
+| 触发时机 | 录音片段完成后自动触发 | 无需用户手动操作 |
+
+### 做了什么
+
+1. **API 验证**: SiliconFlow SenseVoiceSmall 直接支持 M4A 格式，无需转码
+2. **新增 4 个依赖**: OkHttp 4.12, DataStore Preferences 1.1.1, Navigation Compose 2.8.5, kotlinx-serialization-json 1.7.3
+3. **新建 `stt/` 包**: Transcription 数据模型 + SttConfig 配置管理 + SttEngine API 客户端
+4. **新建设置页**: SettingsScreen — 启用开关、provider、base URL、API Key（密码框）、模型
+5. **新建转写页**: TranscriptionScreen — 时间戳 + 文本 + 播放按钮，支持空状态
+6. **重构导航**: MainScreen → RecordScreen（录音 Tab），AppNavigation 管理底部导航
+7. **ViewModel 扩展**: startSttWatcher 监听新片段 → transcribeSegment → 保存 JSON sidecar → 更新列表
+8. **新版 MainActivity**: 收集所有 StateFlow 传入 AppNavigation
+9. **添加 INTERNET 权限**: AndroidManifest
+10. **更新测试**: 4 个测试含导航切换
+11. **版本号**: v0.2.3 → v0.3.0
+
+### 踩了什么坑
+
+- **用户提供的 JavaScript 示例有误**: API 使用 `multipart/form-data` 而非 `JSON.stringify()`
+- **M4A MIME 类型**: OkHttp 上传时需指定 `audio/mp4`（非 `audio/m4a`）
+- **MediaRecorder flush 延迟**: stop() 后需 delay(500ms) 等文件完全写入再上传
+
+### 学到了什么
+
+- SiliconFlow SenseVoiceSmall 对 M4A/AAC 格式支持良好
+- DataStore Preferences 是 SharedPreferences 的现代替代
+- Navigation Compose bottom bar 需要 `saveState/restoreState` 保持 Tab 状态
+- 转录结果作为 JSON sidecar 存储，查询简单且不增加 Room 迁移负担
+
+### ⚠️ 已知不足
+
+1. **无后台转录**: App 退出后新片段不会转录（需后续 WorkManager）
+2. **API Key 明文存储**: DataStore 未加密（可后续上 EncryptedSharedPreferences）
+3. **无转录进度指示**: 状态栏未显示"转录中..."
+
+---
+
 ## 📅 2026-05-11 (傍晚) — v0.2.6 设置界面 + 可配置切片时间
 
 ### 做了什么

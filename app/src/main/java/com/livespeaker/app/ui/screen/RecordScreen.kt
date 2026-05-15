@@ -20,79 +20,44 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.livespeaker.app.audio.AudioRecorder
 import com.livespeaker.app.audio.AudioRecorder.Segment
-import com.livespeaker.app.viewmodel.RecordingViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * v2 主界面 — 录音控制 + 文件列表 + 播放回放。
+ * 录音页面 — 状态栏 + 片段列表 + FAB（不含 TopAppBar，由 Navigation 管理）。
  *
- * 布局:
- *  - TopAppBar: 标题
- *  - 状态栏: 录音状态 + 当前片段计时
- *  - 文件列表: 每行显示片段信息 + 右侧播放按钮
- *  - FAB: 开始/停止录音
+ * 从原 MainScreen 提取，用作底部导航的第一个 Tab。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(
-    viewModel: RecordingViewModel,
+fun RecordScreen(
+    isRecording: Boolean,
+    isPlaying: Boolean,
+    segments: List<Segment>,
+    recorderState: AudioRecorder.State,
+    currentDuration: Long,
+    playingSegment: Segment?,
+    playbackPosition: Long,
+    playbackDuration: Long,
     onFabClick: () -> Unit,
-    onSettingsClick: () -> Unit = {}
+    onPlaySegment: (Segment) -> Unit,
+    onStopPlayback: () -> Unit
 ) {
-    val segments by viewModel.segments.collectAsState()
-    val isRecording by viewModel.isRecording.collectAsState()
-    val isPaused by viewModel.isPaused.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val playingSegment by viewModel.playingSegment.collectAsState()
-    val currentDuration by viewModel.currentSegmentDuration.collectAsState()
-    val recorderState by viewModel.recorder.state.collectAsState()
-
-    val isActive = isRecording || isPaused
     val fabIcon = when {
         isRecording -> Icons.Default.Stop
-        isPaused -> Icons.Default.PlayArrow
+        isPaused(recorderState) -> Icons.Default.PlayArrow
         else -> Icons.Default.Mic
     }
 
     Scaffold(
         floatingActionButtonPosition = FabPosition.Center,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("LiveSpeaker")
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "v2",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "设置",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onFabClick,
                 containerColor = when {
                     isRecording -> MaterialTheme.colorScheme.error
-                    isPaused -> MaterialTheme.colorScheme.secondary
+                    isPaused(recorderState) -> MaterialTheme.colorScheme.secondary
                     else -> MaterialTheme.colorScheme.primary
                 }
             ) {
@@ -100,7 +65,7 @@ fun MainScreen(
                     imageVector = fabIcon,
                     contentDescription = when {
                         isRecording -> "停止录音"
-                        isPaused -> "继续录音"
+                        isPaused(recorderState) -> "继续录音"
                         else -> "开始录音"
                     }
                 )
@@ -125,22 +90,22 @@ fun MainScreen(
                         segments = segments,
                         playingSegment = playingSegment,
                         isPlaying = isPlaying,
-                        onPlay = { segment -> viewModel.playSegment(segment) },
-                        onStopPlayback = { viewModel.stopPlayback() }
+                        onPlay = { segment -> onPlaySegment(segment) },
+                        onStopPlayback = onStopPlayback
                     )
                 }
             }
 
-            // ── 底部进度条（2dp，播放时显示）──
+            // ── 底部进度条 ──
             AnimatedVisibility(
                 visible = isPlaying,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) {
-                val position by viewModel.playbackPosition.collectAsState()
-                val duration by viewModel.playbackDuration.collectAsState()
-                val progress = if (duration > 0) position.toFloat() / duration.toFloat() else 0f
+                val progress = if (playbackDuration > 0) {
+                    playbackPosition.toFloat() / playbackDuration.toFloat()
+                } else 0f
 
                 LinearProgressIndicator(
                     progress = { progress },
@@ -237,7 +202,7 @@ private fun EmptyState() {
             )
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "点击右下角按钮即可开始录音",
+                text = "点击底部按钮开始录音",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -288,7 +253,7 @@ private fun SegmentList(
         LazyColumn(
             contentPadding = PaddingValues(top = 4.dp, bottom = 72.dp)
         ) {
-            items(segments) { segment ->
+            items(segments, key = { it.file.absolutePath }) { segment ->
                 SegmentItem(
                     segment = segment,
                     isCurrentPlaying = isPlaying && playingSegment == segment,
@@ -317,11 +282,8 @@ private fun SegmentItem(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                if (isCurrentPlaying) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                } else {
-                    MaterialTheme.colorScheme.surface
-                }
+                if (isCurrentPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else MaterialTheme.colorScheme.surface
             )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -329,7 +291,6 @@ private fun SegmentItem(
         // 左侧: 片段信息
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 片段编号
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(4.dp)
@@ -343,7 +304,6 @@ private fun SegmentItem(
                     )
                 }
                 Spacer(Modifier.width(10.dp))
-                // 时长
                 Text(
                     text = formatDuration(segment.durationMs),
                     style = MaterialTheme.typography.bodyMedium,
@@ -352,7 +312,6 @@ private fun SegmentItem(
                 )
             }
             Spacer(Modifier.height(4.dp))
-            // 时间戳
             Text(
                 text = formatTimestamp(segment.timestamp),
                 style = MaterialTheme.typography.bodySmall,
@@ -378,6 +337,8 @@ private fun SegmentItem(
 }
 
 // ─── 工具函数 ───
+
+private fun isPaused(state: AudioRecorder.State): Boolean = state == AudioRecorder.State.PAUSED
 
 private fun formatDuration(ms: Long): String {
     val totalSeconds = ms / 1000

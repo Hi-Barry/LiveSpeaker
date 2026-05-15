@@ -1,11 +1,19 @@
-# Add project specific ProGuard rules here.
-# sherpa-onnx 和 ONNX Runtime 使用 JNI，需要保留
--keep class com.k2fsa.sherpa.** { *; }
--keep class ai.onnxruntime.** { *; }
+# LiveSpeaker ProGuard/R8 Rules
 
-# Room 数据库
--keep class com.livespeaker.app.data.** { *; }
+# kotlinx.serialization
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.AnnotationsKt
+-keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+-keepclasseswithmembers class kotlinx.serialization.json.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keep,includedescriptorclasses class com.livespeaker.app.stt.**$$serializer { *; }
+-keepclassmembers class com.livespeaker.app.stt.** {
+    *** Companion;
+}
 
-# Kotlin 序列化
--keepattributes *Annotation*
--keep class kotlinx.serialization.** { *; }
+# OkHttp
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }

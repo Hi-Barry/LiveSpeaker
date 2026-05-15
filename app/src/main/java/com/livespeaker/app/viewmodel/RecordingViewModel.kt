@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.Manifest
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,11 +14,16 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.livespeaker.app.audio.AudioRecorder
 import com.livespeaker.app.audio.AudioRecorder.Segment
 import com.livespeaker.app.audio.RecordingService
+import com.livespeaker.app.stt.SttConfig
+import com.livespeaker.app.stt.SttEngine
+import com.livespeaker.app.stt.SttSettings
+import com.livespeaker.app.stt.TranscriptionResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
@@ -75,9 +81,29 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
     // 是否因为播放而自动暂停了录音
     private var wasRecordingBeforePlayback = false
 
+    // ─── STT 相关 ───
+
+    private val sttConfig = SttConfig(application)
+    private var sttEngine: SttEngine? = null
+
+    /** 已处理的片段文件名集合（防止重复转录） */
+    private val processedSegments = mutableSetOf<String>()
+
+    /** 转录结果列表 */
+    private val _transcriptions = MutableStateFlow<List<TranscriptionResult>>(emptyList())
+    val transcriptions: StateFlow<List<TranscriptionResult>> = _transcriptions
+
+    /** STT 是否正在处理 */
+    private val _isSttProcessing = MutableStateFlow(false)
+    val isSttProcessing: StateFlow<Boolean> = _isSttProcessing
+
     init {
         // 确保输出目录存在
         outputDir.mkdirs()
+        // 加载已有转录结果
+        loadExistingTranscriptions()
+        // 启动片段监听 → 自动触发 STT
+        startSttWatcher()
     }
 
     // ─── 权限 ───
@@ -209,6 +235,89 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
             playbackPosition.value = 0L
             playbackDuration.value = 1L
         }
+    }
+
+    // ─── STT 转录调度 ───
+
+    /**
+     * 监听新片段，触发自动转录。
+     */
+    private fun startSttWatcher() {
+        viewModelScope.launch {
+            recorder.segments.collect { segments ->
+                if (segments.isEmpty()) return@collect
+
+                val settings = sttConfig.settings.first()
+                if (!settings.enabled) return@collect
+
+                for (segment in segments) {
+                    val fileName = segment.file.name
+                    if (fileName in processedSegments) continue
+
+                    processedSegments.add(fileName)
+                    transcribeSegment(segment, settings)
+                }
+            }
+        }
+    }
+
+    private fun transcribeSegment(segment: Segment, settings: SttSettings) {
+        viewModelScope.launch {
+            _isSttProcessing.value = true
+            try {
+                if (sttEngine == null) {
+                    sttEngine = SttEngine(settings)
+                }
+                // 等待文件写入完成（MediaRecorder.stop() 后需要 flush）
+                delay(500)
+
+                val result = sttEngine!!.transcribe(segment.file, segment.index)
+
+                // 保存 sidecar JSON
+                saveTranscriptionSidecar(result)
+
+                // 更新列表
+                _transcriptions.value = _transcriptions.value + result
+            } catch (e: Exception) {
+                Log.e("RecordingVM", "转录异常: ${segment.file.name}", e)
+            } finally {
+                _isSttProcessing.value = false
+            }
+        }
+    }
+
+    private fun saveTranscriptionSidecar(result: TranscriptionResult) {
+        try {
+            val sidecarName = TranscriptionResult.sidecarFileName(result.segmentFileName)
+            val sidecarFile = File(outputDir, sidecarName)
+            val json = TranscriptionResult.json.encodeToString(
+                TranscriptionResult.serializer(), result
+            )
+            sidecarFile.writeText(json)
+        } catch (e: Exception) {
+            Log.e("RecordingVM", "保存转录结果失败", e)
+        }
+    }
+
+    private fun loadExistingTranscriptions() {
+        val results = outputDir.listFiles()
+            ?.filter { it.name.endsWith("_transcription.json") }
+            ?.mapNotNull { file ->
+                try {
+                    val txt = file.readText()
+                    val result = TranscriptionResult.json.decodeFromString<TranscriptionResult>(txt)
+                    result
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            ?.sortedByDescending { it.audioTimestamp }
+            ?: emptyList()
+
+        _transcriptions.value = results
+
+        // 标记已处理的片段
+        processedSegments.addAll(results.map { it.segmentFileName })
     }
 
     override fun onCleared() {

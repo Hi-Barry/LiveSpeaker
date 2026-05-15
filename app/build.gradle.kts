@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -13,7 +14,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 5
-        versionName = "0.2.6"
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -68,6 +69,18 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // OkHttp (STT API 调用)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // DataStore Preferences (STT 设置存储)
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Navigation Compose (多页面导航)
+    implementation("androidx.navigation:navigation-compose:2.8.5")
+
+    // kotlinx-serialization (JSON 解析)
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
