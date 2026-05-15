@@ -241,22 +241,40 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
 
     /**
      * 监听新片段，触发自动转录。
+     * 同时监听 STT 设置：从"未配置"变为"已配置"时自动重试失败的转录。
      */
     private fun startSttWatcher() {
+        // 监听录音片段 → 新片段自动转录
         viewModelScope.launch {
             recorder.segments.collect { segments ->
                 if (segments.isEmpty()) return@collect
 
                 val settings = sttConfig.settings.first()
-                if (!settings.enabled) return@collect
+                if (!settings.enabled || settings.apiKey.isBlank()) return@collect
 
                 for (segment in segments) {
                     val fileName = segment.file.name
                     if (fileName in processedSegments) continue
 
+                    // 删除可能存在的旧错误 sidecar
+                    val sidecar = File(outputDir, TranscriptionResult.sidecarFileName(fileName))
+                    if (sidecar.exists()) sidecar.delete()
+
                     processedSegments.add(fileName)
                     transcribeSegment(segment, settings)
                 }
+            }
+        }
+
+        // 监听 STT 设置变化 → 配置就绪时自动重试失败项目
+        viewModelScope.launch {
+            var wasReady = false
+            sttConfig.settings.collect { settings ->
+                val isReady = settings.enabled && settings.apiKey.isNotBlank()
+                if (isReady && !wasReady) {
+                    retryFailedTranscriptions()
+                }
+                wasReady = isReady
             }
         }
     }
@@ -318,6 +336,85 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
 
         // 标记已处理的片段
         processedSegments.addAll(results.map { it.segmentFileName })
+    }
+
+    // ─── 重试逻辑 ───
+
+    /**
+     * 清除所有失败转录的已处理标记并触发重试。
+     * 当 STT 从"未配置"变为"已配置"时自动调用。
+     */
+    private fun retryFailedTranscriptions() {
+        val failedNames = _transcriptions.value
+            .filter { it.error != null }
+            .map { it.segmentFileName }
+
+        if (failedNames.isEmpty()) return
+
+        // 从已处理集合中移除，允许重新转录
+        processedSegments.removeAll(failedNames.toSet())
+
+        // 删除旧的错误 sidecar
+        for (name in failedNames) {
+            val sidecar = File(outputDir, TranscriptionResult.sidecarFileName(name))
+            if (sidecar.exists()) sidecar.delete()
+        }
+
+        // 从列表中移除错误条目（等重新转录成功后重新出现）
+        _transcriptions.value = _transcriptions.value.filter { it.error == null }
+
+        Log.i("RecordingVM", "已重置 ${failedNames.size} 个失败转录，触发自动重试")
+
+        // 立即重试（直接扫描当前片段列表）
+        viewModelScope.launch {
+            val settings = sttConfig.settings.first()
+            val currentSegments = recorder.segments.value
+            for (segment in currentSegments) {
+                val fileName = segment.file.name
+                if (fileName in failedNames) {
+                    processedSegments.add(fileName)
+                    transcribeSegment(segment, settings)
+                }
+            }
+        }
+    }
+
+    /**
+     * 单条重试 — 供 UI 按钮调用。
+     */
+    fun retrySegment(fileName: String) {
+        viewModelScope.launch {
+            val settings = sttConfig.settings.first()
+            if (!settings.enabled || settings.apiKey.isBlank()) {
+                Log.w("RecordingVM", "重试失败: STT 未配置")
+                return@launch
+            }
+
+            // 移除已处理标记
+            processedSegments.remove(fileName)
+
+            // 删除旧 sidecar
+            val sidecar = File(outputDir, TranscriptionResult.sidecarFileName(fileName))
+            if (sidecar.exists()) sidecar.delete()
+
+            // 移除旧错误条目
+            _transcriptions.value = _transcriptions.value.filter { it.segmentFileName != fileName }
+
+            // 找到对应录音文件并重试
+            val audioFile = File(outputDir, fileName)
+            if (audioFile.exists()) {
+                val segment = Segment(
+                    file = audioFile,
+                    index = 0,
+                    durationMs = 0,
+                    timestamp = audioFile.lastModified()
+                )
+                processedSegments.add(fileName)
+                transcribeSegment(segment, settings)
+            } else {
+                Log.w("RecordingVM", "重试失败: 音频文件不存在 — $fileName")
+            }
+        }
     }
 
     override fun onCleared() {

@@ -49,6 +49,7 @@ fun AppNavigation(
     onPlaySegment: (AudioRecorder.Segment) -> Unit,
     onStopPlayback: () -> Unit,
     onPlayTranscriptionAudio: (String) -> Unit,
+    onRetryTranscription: (String) -> Unit,
     sttConfig: SttConfig,
     recorderOutputDir: File
 ) {
@@ -127,6 +128,7 @@ fun AppNavigation(
                 TranscriptionScreen(
                     transcriptions = transcriptions,
                     onPlaySegment = onPlayTranscriptionAudio,
+                    onRetryItem = onRetryTranscription,
                     recorderOutputDir = recorderOutputDir
                 )
             }

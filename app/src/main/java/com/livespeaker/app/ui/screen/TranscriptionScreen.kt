@@ -32,9 +32,10 @@ import java.util.*
 @Composable
 fun TranscriptionScreen(
     transcriptions: List<TranscriptionResult>,
-    onPlaySegment: (String) -> Unit,  // 传入音频文件名
+    onPlaySegment: (String) -> Unit,
+    onRetryItem: (String) -> Unit,
     recorderOutputDir: File
-) {
+)
     Column(modifier = Modifier.fillMaxSize()) {
         // ── 标题栏 ──
         Row(
@@ -74,7 +75,8 @@ fun TranscriptionScreen(
                             if (audioFile.exists()) {
                                 onPlaySegment(item.segmentFileName)
                             }
-                        }
+                        },
+                        onRetry = { onRetryItem(item.segmentFileName) }
                     )
                     HorizontalDivider(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
@@ -128,7 +130,8 @@ private fun EmptyTranscriptionState() {
 @Composable
 private fun TranscriptionItem(
     item: TranscriptionResult,
-    onPlay: () -> Unit
+    onPlay: () -> Unit,
+    onRetry: () -> Unit
 ) {
     val hasError = item.error != null && item.text.isBlank()
 
@@ -204,8 +207,20 @@ private fun TranscriptionItem(
             }
         }
 
-        // ── 播放按钮 ──
-        if (!hasError) {
+        // ── 操作按钮（播放或重试）──
+        if (hasError) {
+            IconButton(
+                onClick = onRetry,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "重试转录",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        } else {
             IconButton(
                 onClick = onPlay,
                 modifier = Modifier.size(36.dp)

@@ -101,6 +101,9 @@ class MainActivity : ComponentActivity() {
                             val seg = segments.find { it.file.name == fileName }
                             if (seg != null) viewModel.playSegment(seg)
                         },
+                        onRetryTranscription = { fileName ->
+                            viewModel.retrySegment(fileName)
+                        },
                         sttConfig = SttConfig(this),
                         recorderOutputDir = File(filesDir, "recordings")
                     )
