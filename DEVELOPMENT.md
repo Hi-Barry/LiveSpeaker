@@ -5,6 +5,32 @@
 
 ---
 
+## 📅 2026-05-16 — 配色修复：主题统一 + 系统主题跟随
+
+### 事件
+
+修复 App 配色问题：系统弹窗（权限等）与 App 主题不一致、导航栏图标颜色错误、只支持暗色主题。
+
+### 🏗 变更
+
+| 文件 | 变更 | 理由 |
+|------|------|------|
+| `themes.xml` | 父主题 `Light.NoActionBar` → `NoActionBar` | 消除系统弹窗（权限对话框等）亮色/暗色不一致 |
+| `Theme.kt` | 新增 `LightBackground`、`LightSurface`、`LightTextPrimary` 等亮色常量 | 为亮色主题提供配色方案 |
+| `MainActivity.kt` | ① 状态栏/导航栏图标颜色跟随系统主题 ② Compose 主题跟随 `isSystemInDarkTheme()` | 系统亮色模式时 App 自动切换亮色主题 |
+
+### 踩了什么坑
+
+- **`55fb450` 回退的根因**：`1913a38` 同时做了程序化设置 `statusBarColor`/`navigationBarColor`（与 themes.xml 的 `transparent` 可能冲突）和 flags 设置。回退时一起删了。本次**只操作 flags**，不碰 barColor，避免崩溃。
+
+### 架构决策
+
+- **系统栏图标**：`onCreate` 中用 `Configuration.uiMode` 检测系统主题（非 Composable 上下文中唯一可用方法），`setContent` 中用 `isSystemInDarkTheme()`。两者读同一系统设置，始终一致。
+- **两侧 API 覆盖**：API 30+ 用 `WindowInsetsController?.setSystemBarsAppearance()`（空安全），API 26-29 用 `systemUiVisibility`（位掩码操作，无崩溃可能）。
+- **共用强调色**：`AccentPrimary`/`AccentSecondary`/`AccentTertiary`/`ErrorRed` 亮暗通用，不随主题变化。
+
+---
+
 ## 📅 2026-05-15 — v3 STT 语音转文字集成
 
 ### 事件
