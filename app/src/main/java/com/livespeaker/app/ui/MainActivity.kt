@@ -1,10 +1,7 @@
 package com.livespeaker.app.ui
 
 import android.Manifest
-import android.os.Build
 import android.os.Bundle
-import android.view.View
-import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,37 +39,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // ── 状态栏 + 导航栏：跟随系统主题切换图标颜色 ──
-        val isDark = (resources.configuration.uiMode
-            and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // API 30+: WindowInsetsController（现代 API）
-            val target = if (isDark) 0  // 暗色背景 → 浅色（白色）图标
-                else (WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                    or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS)  // 亮色背景 → 深色图标
-            window.insetsController?.setSystemBarsAppearance(
-                target,
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                    or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-            )
-        } else {
-            // API 26-29: systemUiVisibility（传统 API）
-            @Suppress("DEPRECATION")
-            window.decorView.systemUiVisibility = if (isDark) {
-                // 暗色背景 → 清除 LIGHT_* 标志 → 浅色（白色）图标
-                window.decorView.systemUiVisibility
-                    .and(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv())
-                    .and(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv())
-            } else {
-                // 亮色背景 → 设置 LIGHT_* 标志 → 深色图标
-                window.decorView.systemUiVisibility
-                    .or(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR)
-                    .or(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR)
-            }
-        }
 
         setContent {
             // 收集所有流状态
