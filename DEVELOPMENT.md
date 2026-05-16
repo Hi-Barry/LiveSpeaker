@@ -25,9 +25,21 @@
 
 ### 架构决策
 
-- **系统栏图标**：`onCreate` 中用 `Configuration.uiMode` 检测系统主题（非 Composable 上下文中唯一可用方法），`setContent` 中用 `isSystemInDarkTheme()`。两者读同一系统设置，始终一致。
-- **两侧 API 覆盖**：API 30+ 用 `WindowInsetsController?.setSystemBarsAppearance()`（空安全），API 26-29 用 `systemUiVisibility`（位掩码操作，无崩溃可能）。
+- **系统栏图标**：仅用传统的 `systemUiVisibility` 方式（`and` 位掩码清除 `LIGHT_*` 标志）。**避免 WindowInsetsController API 30+ 路径**，在 CI 模拟器 (API 34) 上该路径会导致 App 启动后进程消失。
+- **Compose 主题**：`setContent` 中用 `isSystemInDarkTheme()` 选择 `darkColorScheme` / `lightColorScheme`。
 - **共用强调色**：`AccentPrimary`/`AccentSecondary`/`AccentTertiary`/`ErrorRed` 亮暗通用，不随主题变化。
+
+### ⚠️ 诊断过程（二分法排查）
+
+| 版本 | themes.xml | 状态栏代码 | Compose 主题 | 模拟器测试 |
+|------|-----------|-----------|-------------|-----------|
+| v0.3.3 | `Light.NoActionBar` | 简版 (仅 status bar) | 硬编码暗色 | ✅ 通过 |
+| v0.3.5 | `NoActionBar` | 完整版 (双 API) | 系统跟随 | ❌ 崩溃 |
+| v0.3.6 | `Light.NoActionBar` | 完整版 (双 API) | 系统跟随 | ❌ 崩溃 |
+| v0.3.7 | `Light.NoActionBar` | **无** | 系统跟随 | ✅ 通过 |
+| v0.3.8 | `Light.NoActionBar` | 简版 + nav bar | 系统跟随 | ✅ 通过 |
+
+**根因确认**：`WindowInsetsController.setSystemBarsAppearance()` (API 30+) 导致模拟器崩溃。`systemUiVisibility` 位掩码方式完全安全。`isSystemInDarkTheme()` 和 `lightColorScheme` 无问题。
 
 ---
 
