@@ -64,13 +64,13 @@ class MainActivity : ComponentActivity() {
             window.decorView.systemUiVisibility = if (isDark) {
                 // 暗色背景 → 清除 LIGHT_* 标志 → 浅色（白色）图标
                 window.decorView.systemUiVisibility
-                    and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-                    and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+                    .and(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv())
+                    .and(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv())
             } else {
                 // 亮色背景 → 设置 LIGHT_* 标志 → 深色图标
                 window.decorView.systemUiVisibility
-                    or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                    or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+                    .or(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR)
+                    .or(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR)
             }
         }
 
