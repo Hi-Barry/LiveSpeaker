@@ -41,14 +41,23 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ── 状态栏 + 导航栏适配暗色主题（仅 systemUiVisibility，避免 WindowInsetsController 崩溃）──
-        // v0.3.3 已验证安全的做法：清除 LIGHT_* 标志 → 浅色系统图标
+        // ── 状态栏 + 导航栏：图标颜色跟随系统主题 ──
+        val nightMode = resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        val isSystemDark = nightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+
         @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility = (
+        window.decorView.systemUiVisibility = if (isSystemDark) {
+            // 暗色系统 → 浅色图标（白色）
             window.decorView.systemUiVisibility
-                and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
-                and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
-        )
+                .and(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv())
+                .and(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv())
+        } else {
+            // 亮色系统 → 深色图标
+            window.decorView.systemUiVisibility
+                .or(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR)
+                .or(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR)
+        }
 
         setContent {
             // 收集所有流状态
