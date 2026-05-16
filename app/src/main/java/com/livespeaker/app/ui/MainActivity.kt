@@ -2,6 +2,7 @@ package com.livespeaker.app.ui
 
 import android.Manifest
 import android.os.Bundle
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,6 +40,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // ── 状态栏 + 导航栏适配暗色主题（仅 systemUiVisibility，避免 WindowInsetsController 崩溃）──
+        // v0.3.3 已验证安全的做法：清除 LIGHT_* 标志 → 浅色系统图标
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (
+            window.decorView.systemUiVisibility
+                and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+                and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+        )
 
         setContent {
             // 收集所有流状态
