@@ -104,17 +104,25 @@ class AudioRecorder(private val outputDir: File) {
         }
     }
 
-    /** 停止录音，释放当前 MediaRecorder */
+    /** 停止录音，将当前未完成的片段加入列表后释放 MediaRecorder */
     fun stop() {
         val wasRecording = state.value == State.RECORDING || state.value == State.PAUSED
         stopDurationTimer()
-        try {
-            mediaRecorder?.apply {
-                try { stop() } catch (_: Exception) {}
-                try { release() } catch (_: Exception) {}
-            }
-        } catch (_: Exception) {}
-        mediaRecorder = null
+
+        // 如果有正在录制的片段，先将其完成为正式片段
+        val file = currentFile
+        if (file != null && wasRecording) {
+            finalizeSegment(file)
+        } else {
+            try {
+                mediaRecorder?.apply {
+                    try { stop() } catch (_: Exception) {}
+                    try { release() } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+            mediaRecorder = null
+        }
+
         currentFile = null
         state.value = State.IDLE
         if (wasRecording) Log.i(TAG, "录音已停止 (共 ${_segments.value.size} 个片段)")
@@ -221,27 +229,8 @@ class AudioRecorder(private val outputDir: File) {
     }
 
     private fun onSegmentComplete(file: File) {
-        val now = System.currentTimeMillis()
-
-        // 停止当前片段
         stopDurationTimer()
-        try {
-            mediaRecorder?.apply {
-                try { stop() } catch (_: Exception) {}
-                try { release() } catch (_: Exception) {}
-            }
-        } catch (_: Exception) {}
-        mediaRecorder = null
-
-        // 记录已完成的片段（用文件写入完成后的真实时长和完成时间）
-        val duration = if (file.exists()) getAudioDuration(file) else SettingsManager.segmentDurationMs
-        val segment = Segment(
-            file = file,
-            index = currentSegmentIndex,
-            durationMs = duration,
-            timestamp = now
-        )
-        _segments.value = _segments.value + segment
+        finalizeSegment(file)
 
         // 如果用户没有手动停止，自动开始下一个片段
         if (state.value == State.RECORDING) {
@@ -254,6 +243,34 @@ class AudioRecorder(private val outputDir: File) {
                 }
             }, 100) // 短暂延迟防竞态
         }
+    }
+
+    /**
+     * 完成当前片段：停止并释放 MediaRecorder，读取文件时长，加入 segments 列表。
+     * 由 stop()（手动停止）和 onSegmentComplete()（自动切割）共同调用。
+     */
+    private fun finalizeSegment(file: File) {
+        val now = System.currentTimeMillis()
+
+        // 停止并释放 MediaRecorder
+        try {
+            mediaRecorder?.apply {
+                try { stop() } catch (_: Exception) {}
+                try { release() } catch (_: Exception) {}
+            }
+        } catch (_: Exception) {}
+        mediaRecorder = null
+
+        // 记录已完成的片段（读取文件写入完成后的真实时长）
+        val duration = if (file.exists()) getAudioDuration(file) else SettingsManager.segmentDurationMs
+        val segment = Segment(
+            file = file,
+            index = currentSegmentIndex,
+            durationMs = duration,
+            timestamp = now
+        )
+        _segments.value = _segments.value + segment
+        Log.i(TAG, "片段完成 #$currentSegmentIndex → ${file.name} (${duration}ms)")
     }
 
     private fun startDurationTimer() {
