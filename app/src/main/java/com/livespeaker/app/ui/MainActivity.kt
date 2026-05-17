@@ -1,8 +1,10 @@
 package com.livespeaker.app.ui
 
 import android.Manifest
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.FileProvider
 import com.livespeaker.app.stt.SttConfig
 import com.livespeaker.app.ui.navigation.AppNavigation
 import com.livespeaker.app.ui.screen.SettingsSheet
@@ -146,7 +149,31 @@ class MainActivity : ComponentActivity() {
                             viewModel.retrySegment(fileName)
                         },
                         sttConfig = SttConfig(this),
-                        recorderOutputDir = File(filesDir, "recordings")
+                        recorderOutputDir = File(filesDir, "recordings"),
+                        onExportSegment = { file ->
+                            val ok = viewModel.exportToDownloads(file)
+                            val msg = if (ok) "已导出到 Download/${file.name}" else "导出失败"
+                            Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                        },
+                        onShareSegment = { file ->
+                            try {
+                                val uri = FileProvider.getUriForFile(
+                                    this, "${packageName}.fileprovider", file
+                                )
+                                val intent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "audio/mp4"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                startActivity(Intent.createChooser(intent, "分享录音"))
+                            } catch (e: Exception) {
+                                Toast.makeText(this, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDeleteSegment = { file ->
+                            viewModel.deleteSegment(file)
+                            Toast.makeText(this, "已删除", Toast.LENGTH_SHORT).show()
+                        }
                     )
                 }
 

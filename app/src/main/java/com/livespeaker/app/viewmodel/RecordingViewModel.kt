@@ -1,9 +1,12 @@
 package com.livespeaker.app.viewmodel
 
 import android.app.Application
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.Manifest
+import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
@@ -414,6 +417,78 @@ class RecordingViewModel(application: Application) : AndroidViewModel(applicatio
             } else {
                 Log.w("RecordingVM", "重试失败: 音频文件不存在 — $fileName")
             }
+        }
+    }
+
+    // ─── 删除 / 导出 ───
+
+    /**
+     * 删除录音片段及其关联的转录 sidecar。
+     *
+     * 操作顺序：先从内存列表移除（UI 立即反映），再异步删除磁盘文件。
+     * 如果正在播放该片段，先停止播放。
+     */
+    fun deleteSegment(segmentFile: File) {
+        // 0. 如果正在播放该片段，先停止
+        if (playingSegment.value?.file?.absolutePath == segmentFile.absolutePath) {
+            stopPlayback()
+        }
+
+        // 1. 从 AudioRecorder 的 segments 移除（更新 RecordScreen 列表）
+        recorder.removeSegment(segmentFile)
+
+        // 2. 从 transcriptions 列表移除（更新 TranscriptionScreen 列表）
+        _transcriptions.value = _transcriptions.value.filter {
+            it.segmentFileName != segmentFile.name
+        }
+
+        // 3. 从已处理集合移除（允许同名文件重新出现时被处理）
+        processedSegments.remove(segmentFile.name)
+
+        // 4. 异步删除磁盘文件
+        viewModelScope.launch(Dispatchers.IO) {
+            segmentFile.delete()
+            val sidecar = File(outputDir, TranscriptionResult.sidecarFileName(segmentFile.name))
+            sidecar.delete()
+        }
+    }
+
+    /**
+     * 导出录音文件到公共 Downloads 目录。
+     * 使用 MediaStore API，兼容 Android 10+ Scope Storage，无需额外权限。
+     *
+     * @return true 表示导出成功
+     */
+    fun exportToDownloads(segmentFile: File): Boolean {
+        val context = getApplication<Application>()
+        val mimeType = "audio/mp4"
+
+        return try {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, segmentFile.name)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+
+            val uri = context.contentResolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
+            ) ?: return false
+
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                segmentFile.inputStream().use { input ->
+                    input.copyTo(out)
+                }
+            }
+
+            // 标记写入完成
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            context.contentResolver.update(uri, values, null, null)
+
+            true
+        } catch (e: Exception) {
+            Log.e("RecordingVM", "导出失败: ${segmentFile.name}", e)
+            false
         }
     }
 

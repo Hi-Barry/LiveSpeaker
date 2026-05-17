@@ -1,5 +1,9 @@
 package com.livespeaker.app.ui.screen
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -133,6 +138,7 @@ private fun TranscriptionItem(
     onPlay: () -> Unit,
     onRetry: () -> Unit
 ) {
+    val context = LocalContext.current
     val hasError = item.error != null && item.text.isBlank()
 
     Row(
@@ -207,30 +213,54 @@ private fun TranscriptionItem(
             }
         }
 
-        // ── 操作按钮（播放或重试）──
-        if (hasError) {
-            IconButton(
-                onClick = onRetry,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    Icons.Default.Refresh,
-                    contentDescription = "重试转录",
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-        } else {
-            IconButton(
-                onClick = onPlay,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    Icons.Default.PlayCircle,
-                    contentDescription = "播放音频",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(28.dp)
-                )
+        // ── 操作按钮（复制 / 重试 / 播放）──
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (hasError) {
+                IconButton(
+                    onClick = onRetry,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "重试转录",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            } else {
+                // 复制按钮（成功转录且文本非空时显示）
+                if (item.text.isNotBlank()) {
+                    IconButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                as ClipboardManager
+                            clipboard.setPrimaryClip(
+                                ClipData.newPlainText("转录文本", item.text)
+                            )
+                            Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = "复制文本",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                // 播放按钮
+                IconButton(
+                    onClick = onPlay,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.Default.PlayCircle,
+                        contentDescription = "播放音频",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         }
     }

@@ -3,7 +3,9 @@ package com.livespeaker.app.ui.screen
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -42,7 +44,10 @@ fun RecordScreen(
     playbackDuration: Long,
     onFabClick: () -> Unit,
     onPlaySegment: (Segment) -> Unit,
-    onStopPlayback: () -> Unit
+    onStopPlayback: () -> Unit,
+    onExportSegment: (Segment) -> Unit,
+    onShareSegment: (Segment) -> Unit,
+    onDeleteSegment: (Segment) -> Unit
 ) {
     val fabIcon = when {
         isRecording -> Icons.Default.Stop
@@ -91,7 +96,10 @@ fun RecordScreen(
                         playingSegment = playingSegment,
                         isPlaying = isPlaying,
                         onPlay = { segment -> onPlaySegment(segment) },
-                        onStopPlayback = onStopPlayback
+                        onStopPlayback = onStopPlayback,
+                        onExport = onExportSegment,
+                        onShare = onShareSegment,
+                        onDelete = onDeleteSegment
                     )
                 }
             }
@@ -224,7 +232,10 @@ private fun SegmentList(
     playingSegment: Segment?,
     isPlaying: Boolean,
     onPlay: (Segment) -> Unit,
-    onStopPlayback: () -> Unit
+    onStopPlayback: () -> Unit,
+    onExport: (Segment) -> Unit,
+    onShare: (Segment) -> Unit,
+    onDelete: (Segment) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // 列表标题
@@ -258,7 +269,10 @@ private fun SegmentList(
                     segment = segment,
                     isCurrentPlaying = isPlaying && playingSegment == segment,
                     onPlay = { onPlay(segment) },
-                    onStop = onStopPlayback
+                    onStop = onStopPlayback,
+                    onExport = { onExport(segment) },
+                    onShare = { onShare(segment) },
+                    onDelete = { onDelete(segment) }
                 )
                 HorizontalDivider(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
@@ -271,16 +285,49 @@ private fun SegmentList(
 
 // ─── 单条片段项 ───
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SegmentItem(
     segment: Segment,
     isCurrentPlaying: Boolean,
     onPlay: () -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    onExport: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    // ── 删除确认对话框 ──
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("确认删除") },
+            text = { Text("删除后将同时移除对应的转录文本，此操作不可撤销。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    onDelete()
+                }) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = { showMenu = true }
+            )
             .background(
                 if (isCurrentPlaying) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                 else MaterialTheme.colorScheme.surface
@@ -332,6 +379,53 @@ private fun SegmentItem(
                        else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(28.dp)
             )
+        }
+
+        // 更多操作按钮 + 下拉菜单
+        Box {
+            IconButton(onClick = { showMenu = true }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "更多操作",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("导出") },
+                    onClick = { showMenu = false; onExport() },
+                    leadingIcon = {
+                        Icon(Icons.Default.FileDownload, null, modifier = Modifier.size(20.dp))
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("分享") },
+                    onClick = { showMenu = false; onShare() },
+                    leadingIcon = {
+                        Icon(Icons.Default.Share, null, modifier = Modifier.size(20.dp))
+                    }
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                    onClick = {
+                        showMenu = false
+                        showDeleteDialog = true
+                    },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Delete, null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                )
+            }
         }
     }
 }

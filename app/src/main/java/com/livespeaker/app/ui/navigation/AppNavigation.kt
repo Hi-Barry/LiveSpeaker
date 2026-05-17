@@ -51,7 +51,10 @@ fun AppNavigation(
     onPlayTranscriptionAudio: (String) -> Unit,
     onRetryTranscription: (String) -> Unit,
     sttConfig: SttConfig,
-    recorderOutputDir: File
+    recorderOutputDir: File,
+    onExportSegment: (File) -> Unit,
+    onShareSegment: (File) -> Unit,
+    onDeleteSegment: (File) -> Unit
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -121,7 +124,10 @@ fun AppNavigation(
                     playbackDuration = playbackDuration,
                     onFabClick = onFabClick,
                     onPlaySegment = onPlaySegment,
-                    onStopPlayback = onStopPlayback
+                    onStopPlayback = onStopPlayback,
+                    onExportSegment = { segment -> onExportSegment(segment.file) },
+                    onShareSegment = { segment -> onShareSegment(segment.file) },
+                    onDeleteSegment = { segment -> onDeleteSegment(segment.file) }
                 )
             }
             composable(Screen.Transcriptions.route) {

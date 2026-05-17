@@ -277,6 +277,16 @@ class AudioRecorder(private val outputDir: File) {
     }
 
     /**
+     * 从片段列表中移除指定文件。
+     * 用于外部删除录音文件后同步 UI 状态。
+     */
+    fun removeSegment(file: File) {
+        _segments.value = _segments.value.filter {
+            it.file.absolutePath != file.absolutePath
+        }
+    }
+
+    /**
      * 获取存储目录
      */
     fun getOutputDir(): File = outputDir
