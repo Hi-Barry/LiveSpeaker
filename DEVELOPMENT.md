@@ -3,6 +3,24 @@
 > **原则**: 每次开发会话结束后更新本文档。记录决策、踩坑、心得。
 > 不追求格式完美，追求"半年后回来还能看懂当时为什么这么写"。
 
+## 📋 版本历程速览
+
+| 版本 | 日期 | 关键变更 |
+|------|------|---------|
+| **v0.4.1** | 05-17 | 🛡️ 停止录音保留当前片段 |
+| **v0.4.0** | 05-17 | 📤 长按菜单：导出/分享/删除 + 转录复制 |
+| **v0.3.9** | 05-16 | 🌓 状态栏图标跟随系统主题 |
+| **v0.3.5** | 05-16 | 🌓 系统亮暗主题自动切换 |
+| **v0.3.1** | 05-15 | 🔄 STT 自动重试 + 设置集成到 BottomSheet |
+| **v0.3.0** | 05-15 | ☁️ 云端语音转文字 (STT) 集成 |
+| **v0.2.6** | 05-11 | ⚙️ 可配置录音切片时间 |
+| **v0.2.5** | 05-11 | 🎙️ 前台 Service 支持后台录音 |
+| **v0.2.4** | 05-11 | 🛡️ 切割链异常保护 + 时间戳修正 |
+| **v0.2.3** | 05-11 | 🐛 修复录音时长显示 2:02 错误 |
+| **v0.2.1** | 05-11 | ▶️ 播放进度条 + 音频源优化 |
+| **v0.2.0** | 05-11 | 🔄 v2 全面重构：纯录音切割 |
+| **v0.1.x** | 05-09~11 | 🏗️ v1 sherpa-onnx 离线语音识别（已废弃） |
+
 ---
 
 ## 📅 2026-05-16 — 配色修复：主题统一 + 系统主题跟随
@@ -40,6 +58,69 @@
 | v0.3.8 | `Light.NoActionBar` | 简版 + nav bar | 系统跟随 | ✅ 通过 |
 
 **根因确认**：`WindowInsetsController.setSystemBarsAppearance()` (API 30+) 导致模拟器崩溃。`systemUiVisibility` 位掩码方式完全安全。`isSystemInDarkTheme()` 和 `lightColorScheme` 无问题。
+
+---
+
+## 📅 2026-05-17 — v0.4.1 停止录音时保留当前片段
+
+### 事件
+
+用户反馈手动停止录音后，录制时间不足 1 分钟（自动切片时长）的当前片段会丢失，不出现在列表中。
+
+### 🏗 根因
+
+`AudioRecorder.stop()` 虽然调用了 `MediaRecorder.stop()` 将音频写入磁盘，但**没有把 `currentFile` 加入内部 `_segments` 列表**。
+
+### 修复
+
+提取 `finalizeSegment(file)` 方法，释放 `MediaRecorder` → 读取文件时长 → 加入 `_segments` 列表。现在无论是手动 `stop()` 还是自动 `onSegmentComplete()`，都走同一个 `finalizeSegment()` 路径。
+
+### 改动量
+
+- `AudioRecorder.kt`（重构 ~20 行）— 提取 `finalizeSegment()`，`stop()` 和 `onSegmentComplete()` 统一调用
+
+---
+
+## 📅 2026-05-17 — v0.4.0 录音长按菜单 + 转录文本复制
+
+### 事件
+
+为录音片段添加长按/更多按钮弹出菜单（导出、分享、删除），为转录文本添加复制按钮。
+
+### 🏗 架构决策
+
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| 导出 | `MediaStore.Downloads` API | Android 10+ Scoped Storage 兼容，无需权限 |
+| 分享 | `FileProvider` + `content://` URI | Android 分享标准方式 |
+| 删除 | `AlertDialog` 确认 + 停止播放 | 防止误操作，先停播再删 |
+| 删除联动 | 同步删除 `_transcription.json` sidecar | 保持数据一致 |
+| UI | `combinedClickable` + `DropdownMenu` | 长按 + ⋮ 按钮双入口 |
+
+### 改动量
+
+| 文件 | 变更 | 理由 |
+|------|------|------|
+| `AudioRecorder.kt` | +`removeSegment()` | ViewModel 通过此方法操作内部列表 |
+| `RecordingViewModel.kt` | +`deleteSegment()`, +`exportToDownloads()` | 业务逻辑封装 |
+| `RecordScreen.kt` | 重构 `SegmentItem` + `DropdownMenu` + `AlertDialog` | 菜单 UI + 确认弹窗 |
+| `TranscriptionScreen.kt` | +复制按钮 → `ClipboardManager` | 转录文本复制 |
+| `AppNavigation.kt` | +3 个回调参数 | 导出/分享/删除 → MainActivity |
+| `MainActivity.kt` | 实现 3 个回调 | FileProvider 分享、MediaStore 导出 |
+| `res/xml/file_paths.xml` | 新建 | FileProvider 路径配置 |
+| `AndroidManifest.xml` | +FileProvider 声明 | 分享功能必需 |
+
+---
+
+## 📅 2026-05-16 — v0.3.9 状态栏图标跟随系统主题
+
+### 事件
+
+亮色主题下状态栏图标（时间、电量等）仍是白色，导致白底白字不可见。
+
+### 修复
+
+在 `onCreate` 中用 `systemUiVisibility` 位掩码设置 `SYSTEM_UI_FLAG_LIGHT_STATUS_BAR`（亮色主题），`SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR` 同理。暗色主题清除这些标志。避免使用 `WindowInsetsController` API 30+ 路径（模拟器上有崩溃风险）。
 
 ---
 
@@ -96,6 +177,27 @@
 
 ---
 
+## 📅 2026-05-15 — v0.3.1 STT 自动重试 + 设置集成
+
+### 事件
+
+用户配置了正确的 STT 设置，但转录页面仍显示"STT 未启用"错误——原因是之前未配置时产生的错误条目被标记为"已处理"，即使后续设置正确也不会自动重试。
+
+### 🏗 修复
+
+1. **自动重试**: 监听 STT 配置变更（`sttConfig.settings`），当从未启用/无Key变为已启用+有Key时，自动清除 `processedSegments` 中的错误条目，删除对应 sidecar 文件，触发重新转录
+2. **逐条重试**: 转录页面每条错误条目右侧添加 🔄 重试按钮，支持手动逐条重试
+3. **设置集成**: 将 STT 设置（API Key、Model 等）从独立的全屏 `SettingsScreen` 集成到已有的 `SettingsSheet` (BottomSheet) 中
+
+### 改动量
+
+- `RecordingViewModel.kt` — `clearErrorProcessedSegments()` + `retrySegment()` + 配置监听协程
+- `TranscriptionScreen.kt` — 错误条目 + 重试按钮
+- `SettingsSheet.kt` — STT 设置项（Provider/URL/Key/Model）
+- `AppNavigation.kt` — `onRetry` 回调传递
+
+---
+
 ## 📅 2026-05-11 (傍晚) — v0.2.6 设置界面 + 可配置切片时间
 
 ### 做了什么
@@ -149,6 +251,42 @@ AudioRecorder.kt 一行未动。
 ### 坑
 
 - `PendingIntent.getActivity()` 需用 `Class.forName()` 引用 Activity，避免循环依赖（Service 在 audio 包，Activity 在 ui 包）
+
+---
+
+## 📅 2026-05-11 — v0.2.4 切割链异常保护 + 时间戳修正
+
+### 做了什么
+
+在 v0.2.3 时长修复基础上，加固录音切割链路的健壮性。
+
+### 修复
+
+- **切割异常保护**: `onSegmentComplete()` 回调中增加 try-catch，防止单次切割失败导致后续录音中断
+- **时间戳修正**: 文件命名中的时间戳改用录音开始时间而非文件创建时间，确保文件名与录音时段一致
+
+---
+
+## 📅 2026-05-11 — v0.2.2 版本号对齐 + 历史列表保持
+
+### 做了什么
+
+- **版本号对齐**: `build.gradle.kts` 中 `versionName` 与 Git tag 同步
+- **历史列表保持**: 重新开始录音时不再清空已有的历史片段列表，仅追加新片段
+
+---
+
+## 📅 2026-05-11 — v0.2.1 播放进度条 + 音频源优化
+
+### 做了什么
+
+- **播放进度条**: 播放中的片段底部显示 2dp 高的 `LinearProgressIndicator`，播放结束后自动隐藏
+- **音频源优化**: 录音音频源从默认改为 `VOICE_RECOGNITION`，提升嘈杂环境下的录音质量
+
+### 改动量
+
+- `MainScreen.kt` — 播放进度条 UI
+- `AudioRecorder.kt` — 音频源配置
 
 ---
 
@@ -378,7 +516,7 @@ AudioRecorder.kt 一行未动。
 - CI 模拟器无麦克风 ≠ 不能测录音启动链路 — 模型缺失时 Service 优雅停止才是我们要验证的「不崩溃」行为
 
 ---
-> **最后更新**: 2026-05-11 | **维护者**: Hermes Agent + Hi-Barry
+> **最后更新**: 2026-05-18 | **维护者**: Hermes Agent + Hi-Barry
 
 ## 📅 2026-05-11 — CI emulator script 多行语法错误修复
 
@@ -407,7 +545,7 @@ AudioRecorder.kt 一行未动。
 **最终验证**: CI 全绿 → Screen: 320x640, FAB: 281x563, ✅ PASS
 
 ---
-> **最后更新**: 2026-05-11 | **维护者**: Hermes Agent + Hi-Barry
+> **最后更新**: 2026-05-18 | **维护者**: Hermes Agent + Hi-Barry
 
 ## 📅 2026-05-11 — 模型自动下载 + 国内镜像
 
@@ -426,7 +564,7 @@ AudioRecorder.kt 一行未动。
 - 下载 + 加载链路一次性打通比逐个排查体验好得多：用户点"开始录音" → 看到通知栏进度 → 下载完成自动开始，无需手动操作
 
 ---
-> **最后更新**: 2026-05-11 | **维护者**: Hermes Agent + Hi-Barry
+> **最后更新**: 2026-05-18 | **维护者**: Hermes Agent + Hi-Barry
 
 ## 📅 2026-05-11 — UX 修复：悬浮窗权限去重 + 下载进度可见
 
@@ -439,7 +577,7 @@ AudioRecorder.kt 一行未动。
 - **下载进度 vs 通知时序**: 下载发生在 `onCreate()`，但 `startForeground()` 在 `onStartCommand()` → 不能在下载回调中直接 `updateNotification()`。解决：`waitForModel()` 轮询 `downloadProgress`
 
 ---
-> **最后更新**: 2026-05-11 | **维护者**: Hermes Agent + Hi-Barry
+> **最后更新**: 2026-05-18 | **维护者**: Hermes Agent + Hi-Barry
 
 ## 📅 2026-05-11 — 状态机重构：PREPARING + EventBus 驱动 UI
 
