@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,7 +33,11 @@ private val options = listOf(
 )
 
 /**
- * 设置 BottomSheet：切片时间 + STT 配置。
+ * 设置界面 — 全屏覆盖层。
+ *
+ * 原为 ModalBottomSheet，因键盘弹出时 BottomSheet 动态调整高度导致
+ * 输入框跳跃、光标错位、长按退格失效等 bug，改为此全屏布局。
+ * 内容可纵向滚动，但不存在 BottomSheet 的 resize 行为。
  *
  * @param sttConfig STT 配置管理器
  * @param onDismiss 关闭回调
@@ -49,15 +54,36 @@ fun SettingsSheet(
     val sttSettings by sttConfig.settings.collectAsState(initial = SttConfig.DEFAULTS)
     val scope = rememberCoroutineScope()
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
-    ) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        "设置",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            contentDescription = "返回",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
+                .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp),
@@ -248,6 +274,9 @@ fun SettingsSheet(
                     )
                 }
             }
+
+            // 底部留白给导航栏
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
